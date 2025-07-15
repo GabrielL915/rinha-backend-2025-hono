@@ -1,12 +1,14 @@
-// src/redis.ts
 import Redis from 'ioredis'
 
-const {
-    REDIS_URI,
-    REDIS_HOST = 'localhost',
-    REDIS_PORT = '6379',
-} = process.env
+export const REDIS_URI = process.env.REDIS_URI
+export const REDIS_HOST = process.env.REDIS_HOST ?? 'localhost'
+export const REDIS_PORT = process.env.REDIS_PORT ?? '6379'
 
+export const redisConnectionConfig = {
+    host: REDIS_HOST,
+    port: parseInt(REDIS_PORT, 10),
+    ...(REDIS_URI ? { url: REDIS_URI } : {})
+}
 const connectionString =
     REDIS_URI ??
     `redis://${REDIS_HOST}:${REDIS_PORT}`
