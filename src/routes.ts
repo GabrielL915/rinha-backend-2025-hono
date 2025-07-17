@@ -19,9 +19,14 @@ paymentsRoute.post('/payments', async c => {
     const added = await redis.sadd('payments:ids', body.correlationId)
     if (added === 0) return c.json({ error: 'correlationId must be unique' }, 409)
 
-    await paymentQueue.add('process-payment', {
+    const data = {
         correlationId: body.correlationId,
         amount: body.amount
+    }
+    await paymentQueue.add('process-payment', data, {
+        attempts: 3,
+        backoff: { type: 'fixed', delay: 0 },
+        removeOnComplete: true,
     })
 
     return c.json({ status: 'enqueued' }, 202)
@@ -34,9 +39,6 @@ paymentsRoute.get('/payments-summary', async c => {
         redis.hgetall('summary:requests'),
         redis.hgetall('summary:amount'),
     ])
-
-    console.log('[Route:/payments-summary] summary:requests', reqs)
-    console.log('[Route:/payments-summary] summary:amount', amts)
 
     return c.json({
         default: {

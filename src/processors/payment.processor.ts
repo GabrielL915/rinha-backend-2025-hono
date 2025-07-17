@@ -12,18 +12,16 @@ export const startPaymentWorker = () => {
     const worker = new Worker(
         queueName,
         async job => {
-            const { correlationId, amount } = job.data;
-            console.log(`[Worker] Processing job ${job.id} - correlationId=${correlationId}, amount=${amount}`);
             const success = await processPayment(job.data)
             if (success) {
-                console.log(`[Worker] Payment sent for correlationId=${correlationId}`);
+                console.log(`[Worker] Payment sent`);
             } else {
-                console.warn(`[Worker] Processor unavailable for correlationId=${correlationId}, will retry later`);
+                console.warn(`[Worker] Processor unavailable, will retry later`);
             }
         },
         {
             connection: redisConnectionConfig,
-            concurrency: 20,
+            concurrency: 10,
             autorun: false
         }
     )
