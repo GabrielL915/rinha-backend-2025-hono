@@ -8,11 +8,7 @@ const DEFAULT_URL = 'http://localhost:8001'
 const FALLBACK_URL = 'http://localhost:8002'
 const HEALTH_INTERVAL = 5000
 
-// Novo: concurrency ajustável por env
-const WORKER_CONCURRENCY = parseInt(process.env.WORKER_CONCURRENCY || '10', 10)
-
 export const startPaymentWorker = () => {
-    console.log(`[Worker] Inicializando com concurrency=${WORKER_CONCURRENCY}`)
     const worker = new Worker(
         queueName,
         async job => {
@@ -27,7 +23,7 @@ export const startPaymentWorker = () => {
         },
         {
             connection: redisConnectionConfig,
-            concurrency: WORKER_CONCURRENCY,
+            concurrency: 20,
             autorun: false
         }
     )
@@ -43,16 +39,15 @@ export const startPaymentWorker = () => {
     setInterval(async () => {
         const defaultOk = await isProcessorHealthy(DEFAULT_URL)
         const fallbackOk = await isProcessorHealthy(FALLBACK_URL)
-        const now = new Date().toISOString()
 
         if (!defaultOk && !fallbackOk) {
             if (!worker.isPaused()) {
-                console.warn(`[Worker] Pausing queue (no processors available) at ${now}. Status: defaultOk=${defaultOk}, fallbackOk=${fallbackOk}`)
+                console.warn('[Worker] Pausing queue (no processors available)')
                 await worker.pause()
             }
         } else {
             if (worker.isPaused()) {
-                console.log(`[Worker] Resuming queue (processor available) at ${now}. Status: defaultOk=${defaultOk}, fallbackOk=${fallbackOk}`)
+                console.log('[Worker] Resuming queue (processor available)')
                 worker.resume()
             }
         }
