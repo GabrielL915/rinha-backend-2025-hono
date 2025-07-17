@@ -35,6 +35,9 @@ paymentsRoute.get('/payments-summary', async c => {
         redis.hgetall('summary:amount'),
     ])
 
+    console.log('[Route:/payments-summary] summary:requests', reqs)
+    console.log('[Route:/payments-summary] summary:amount', amts)
+
     return c.json({
         default: {
             totalRequests: parseInt(reqs.default || '0'),
