@@ -24,14 +24,16 @@ paymentsRoute.post('/payments', async c => {
         amount: body.amount
     }
     await paymentQueue.add('process-payment', data, {
-        attempts: 3,
-        backoff: { type: 'fixed', delay: 0 },
-        removeOnComplete: true,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 100,
+        removeOnFail: 50
     })
 
     return c.json({ status: 'enqueued' }, 202)
 })
 
+//TODO
 paymentsRoute.get('/payments-summary', async c => {
     const redis = getRedis()
 

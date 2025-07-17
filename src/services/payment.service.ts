@@ -1,40 +1,99 @@
-import { getRedis } from '../config/redis'
-import { isProcessorHealthy } from './processor-health'
+import { getRedis } from '../config/redis';
+import { PaymentData, ProcessorConfig } from '../types';
+import { PROCESSORS } from '../config/processors';
+import { processorHealthService } from './processor-health';
 
-const DEFAULT_URL = 'http://localhost:8001'
-const FALLBACK_URL = 'http://localhost:8002'
-
-export async function processPayment(data: { correlationId: string, amount: number }) {
-    const now = new Date().toISOString()
-    const redis = getRedis()
-
-    const canUseDefault = await isProcessorHealthy(DEFAULT_URL)
-    const canUseFallback = await isProcessorHealthy(FALLBACK_URL)
-
-    let url = ''
-    if (canUseDefault) {
-        url = DEFAULT_URL
-    } else if (canUseFallback) {
-        url = FALLBACK_URL
+class PaymentService {
+    private get redis() {
+        return getRedis()
     }
 
-    if (!url) {
-        return false
+    async processPayment(data: PaymentData): Promise<{
+        success: boolean;
+        processor?: string;
+        fee?: number;
+        netAmount?: number;
+        error?: string;
+    }> {
+        const now = new Date().toISOString();
+        const paymentData = { ...data, requestedAt: now };
+
+        const selectedProcessor = await processorHealthService.selectBestProcessor(PROCESSORS);
+
+        if (!selectedProcessor) {
+            return {
+                success: false,
+                error: 'No processors available'
+            };
+        }
+
+        const result = await this.callProcessor(selectedProcessor, paymentData);
+
+        if (result.success) {
+
+            await this.updateMetrics(selectedProcessor, data.amount);
+
+            return {
+                success: true,
+                processor: selectedProcessor.name,
+            };
+        }
+
+        return result;
     }
 
-    const res = await fetch(url + '/payments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, requestedAt: now })
-    })
+    private async callProcessor(processor: ProcessorConfig, data: PaymentData): Promise<{
+        success: boolean;
+        error?: string;
+    }> {
+        let lastError: string = '';
 
-    if (!res.ok) {
-        return false
+        for (let attempt = 0; attempt <= processor.retryCount; attempt++) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), processor.timeout);
+
+                const res = await fetch(`${processor.url}/payments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (res.ok) {
+                    return { success: true };
+                }
+
+                lastError = `HTTP ${res.status}: ${res.statusText}`;
+
+                if (res.status >= 400 && res.status < 500) {
+                    break;
+                }
+
+            } catch (error) {
+                lastError = error instanceof Error ? error.message : 'Unknown error';
+
+                if (attempt < processor.retryCount && !lastError.includes('abort')) {
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+                }
+            }
+        }
+
+        return {
+            success: false,
+            error: lastError
+        };
     }
 
-    const processor = url === DEFAULT_URL ? 'default' : 'fallback'
-    await redis.hincrby('summary:requests', processor, 1)
-    await redis.hincrbyfloat('summary:amount', processor, data.amount)
+    private async updateMetrics(processor: ProcessorConfig, amount: number) {
+        const pipeline = this.redis.pipeline();
 
-    return true
+        pipeline.hincrby('summary:requests', processor.name, 1);
+        pipeline.hincrbyfloat('summary:amount', processor.name, amount);
+        await pipeline.exec();
+    }
 }
+
+export const paymentService = new PaymentService();
