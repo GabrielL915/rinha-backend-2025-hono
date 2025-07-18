@@ -11,8 +11,6 @@ class PaymentService {
     async processPayment(data: PaymentData): Promise<{
         success: boolean;
         processor?: string;
-        fee?: number;
-        netAmount?: number;
         error?: string;
     }> {
         const now = new Date().toISOString();
@@ -89,7 +87,8 @@ class PaymentService {
 
     private async updateMetrics(processor: ProcessorConfig, amount: number) {
         const pipeline = this.redis.pipeline();
-
+/* 
+        pipeline.set(`summary:correlationId${processor.name}:ammout${amount}:timestamp${processor.timeout}`) */
         pipeline.hincrby('summary:requests', processor.name, 1);
         pipeline.hincrbyfloat('summary:amount', processor.name, amount);
         await pipeline.exec();
