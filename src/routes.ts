@@ -1,12 +1,14 @@
 import { Hono } from 'hono'
 import { getRedis } from './config/redis'
 import { paymentQueue } from './jobs/payment.queue'
+import { PROCESSORS, ADMIN_PURGE_PATH, RINHA_TOKEN } from './config/processors'
 
 const DEFAULT_PROCESSOR = 'http://localhost:8001'
 const FALLBACK_PROCESSOR = 'http://localhost:8002'
+/* 
 const ADMIN_PURGE_PATH = '/admin/purge-payments'
 const RINHA_TOKEN = '123'
-
+ */
 export const paymentsRoute = new Hono()
 
 paymentsRoute.post('/payments', async c => {
@@ -42,10 +44,10 @@ paymentsRoute.get('/payments-summary', async c => {
     const fromTs = fromParam ? Date.parse(fromParam) : 0;
     const toTs = toParam ? Date.parse(toParam) : Date.now();
 
-    const summary = await Promise.all(['default', 'fallback'].map(async name => {
-        console.log('[Summary] fromTs=' + fromTs + ' toTs=' + toTs);
+    const summary = await Promise.all(PROCESSORS.map(async processor => {
+        console.log(`[Summary] Checking processor: ${processor.name}, fromTs=${fromTs}, toTs=${toTs}`);
         const members: string[] = await redis.zrangebyscore(
-            `summary:payments:${name}`,
+            `summary:payments:${processor.name}`,
             fromTs,
             toTs
         );
@@ -58,17 +60,20 @@ paymentsRoute.get('/payments-summary', async c => {
             totalAmount += amount;
             totalRequests++;
         }
-        console.log(`[Summary] ${name} returned ${members.length} entries`);
-        return { name, totalAmount, totalRequests };
+        console.log(`[Summary] ${processor.name} returned ${members.length} entries`);
+        return { name: processor.name, totalAmount, totalRequests };
     }));
 
-    const def = summary.find(s => s.name === 'default')!;
-    const fb = summary.find(s => s.name === 'fallback')!;
+    const response: Record<string, { totalRequests: number, totalAmount: number }> = {};
 
-    return c.json({
-        default: { totalRequests: def.totalRequests, totalAmount: def.totalAmount },
-        fallback: { totalRequests: fb.totalRequests, totalAmount: fb.totalAmount }
-    });
+    summary.forEach(item => {
+        response[item.name] = {
+            totalRequests: item.totalRequests,
+            totalAmount: item.totalAmount
+        };
+    })
+
+    return c.json(response);
 })
 
 paymentsRoute.post('/purge-payments', async (c) => {
