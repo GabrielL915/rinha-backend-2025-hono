@@ -29,7 +29,7 @@ class PaymentService {
 
         if (result.success) {
 
-            await this.updateMetrics(selectedProcessor, data.amount);
+            await this.updateMetrics(selectedProcessor, data.amount, paymentData.requestedAt);
 
             return {
                 success: true,
@@ -85,13 +85,21 @@ class PaymentService {
         };
     }
 
-    private async updateMetrics(processor: ProcessorConfig, amount: number) {
+    private async updateMetrics(processor: ProcessorConfig, amount: number, requestedAt: string) {
+
+        const keyReqs = 'summary:requests';
+        const keyAmts = 'summary:amount';
+        const keyZset = `summary:payments:${processor.name}`;
+        const score = new Date(requestedAt).getTime();
+        const memberData = JSON.stringify({ amount, requestedAt })
+
         const pipeline = this.redis.pipeline();
-/* 
-        pipeline.set(`summary:correlationId${processor.name}:ammout${amount}:timestamp${processor.timeout}`) */
-        pipeline.hincrby('summary:requests', processor.name, 1);
-        pipeline.hincrbyfloat('summary:amount', processor.name, amount);
-        await pipeline.exec();
+
+        pipeline.hincrby(keyReqs, processor.name, 1);
+        pipeline.hincrbyfloat(keyAmts, processor.name, amount);
+        pipeline.zadd(keyZset, score, memberData);
+
+        await pipeline.exec()
     }
 }
 

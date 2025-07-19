@@ -33,25 +33,42 @@ paymentsRoute.post('/payments', async c => {
     return c.json({ status: 'enqueued' }, 202)
 })
 
-//TODO
 paymentsRoute.get('/payments-summary', async c => {
     const redis = getRedis()
 
-    const [reqs, amts] = await Promise.all([
-        redis.hgetall('summary:requests'),
-        redis.hgetall('summary:amount'),
-    ])
+    const fromParam = c.req.query('from');
+    const toParam = c.req.query('to')
+
+    const fromTs = fromParam ? Date.parse(fromParam) : 0;
+    const toTs = toParam ? Date.parse(toParam) : Date.now();
+
+    const summary = await Promise.all(['default', 'fallback'].map(async name => {
+        console.log('[Summary] fromTs=' + fromTs + ' toTs=' + toTs);
+        const members: string[] = await redis.zrangebyscore(
+            `summary:payments:${name}`,
+            fromTs,
+            toTs
+        );
+
+        let totalAmount = 0;
+        let totalRequests = 0;
+
+        for (const m of members) {
+            const { amount } = JSON.parse(m) as { amount: number, requestedAt: string };
+            totalAmount += amount;
+            totalRequests++;
+        }
+        console.log(`[Summary] ${name} returned ${members.length} entries`);
+        return { name, totalAmount, totalRequests };
+    }));
+
+    const def = summary.find(s => s.name === 'default')!;
+    const fb = summary.find(s => s.name === 'fallback')!;
 
     return c.json({
-        default: {
-            totalRequests: parseInt(reqs.default || '0'),
-            totalAmount: parseFloat(amts.default || '0'),
-        },
-        fallback: {
-            totalRequests: parseInt(reqs.fallback || '0'),
-            totalAmount: parseFloat(amts.fallback || '0'),
-        }
-    })
+        default: { totalRequests: def.totalRequests, totalAmount: def.totalAmount },
+        fallback: { totalRequests: fb.totalRequests, totalAmount: fb.totalAmount }
+    });
 })
 
 paymentsRoute.post('/purge-payments', async (c) => {
