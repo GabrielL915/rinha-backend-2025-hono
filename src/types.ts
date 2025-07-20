@@ -1,7 +1,7 @@
 export interface PaymentData {
     correlationId: string;
     amount: number;
-    requestedAt?: string;
+    requestedAt: string;
 }
 
 export interface HealthResponse {

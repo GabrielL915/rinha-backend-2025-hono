@@ -26,6 +26,7 @@ paymentsRoute.post('/payments', async c => {
         amount: body.amount
     }
     await paymentQueue.add('process-payment', data, {
+        jobId: data.correlationId,
         attempts: 5,
         backoff: { type: 'exponential', delay: 2000 },
         removeOnComplete: 100,
