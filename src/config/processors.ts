@@ -2,14 +2,14 @@ import { ProcessorConfig } from "../types";
 
 export const PROCESSORS: ProcessorConfig[] = [
     {
-        url: 'http://localhost:8001',
+        url: process.env.PAYMENT_PROCESSOR_DEFAULT_URL as string,
         name: 'default',
         priority: 1,
         timeout: 10000,
         retryCount: 2
     },
     {
-        url: 'http://localhost:8002',
+        url: process.env.PAYMENT_PROCESSOR_FALLBACK_URL as string,
         name: 'fallback',
         priority: 2,
         timeout: 15000,

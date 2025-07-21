@@ -12,10 +12,8 @@ export const startPaymentWorker = () => {
             const result = await paymentService.processPayment(job.data);
             
             if (result.success) {
-                console.log(`[Worker] Payment processed via ${result.processor}`);
                 return result;
             } else {
-                console.warn(`[Worker] Payment failed: ${result.error}`);
                 throw new Error(result.error);
             }
         },
@@ -40,12 +38,10 @@ export const startPaymentWorker = () => {
             
             if (!healthyProcessor) {
                 if (!worker.isPaused()) {
-                    console.warn('[Worker] Pausing queue (no healthy processors)');
                     await worker.pause();
                 }
             } else {
                 if (worker.isPaused()) {
-                    console.log(`[Worker] Resuming queue (${healthyProcessor.name} processor available)`);
                     worker.resume();
                 }
             }

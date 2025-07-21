@@ -5,10 +5,7 @@ import { PROCESSORS, ADMIN_PURGE_PATH, RINHA_TOKEN } from './config/processors'
 
 const DEFAULT_PROCESSOR = 'http://localhost:8001'
 const FALLBACK_PROCESSOR = 'http://localhost:8002'
-/* 
-const ADMIN_PURGE_PATH = '/admin/purge-payments'
-const RINHA_TOKEN = '123'
- */
+
 export const paymentsRoute = new Hono()
 
 paymentsRoute.post('/payments', async c => {
@@ -46,7 +43,6 @@ paymentsRoute.get('/payments-summary', async c => {
     const toTs = toParam ? Date.parse(toParam) : Date.now();
 
     const summary = await Promise.all(PROCESSORS.map(async processor => {
-        console.log(`[Summary] Checking processor: ${processor.name}, fromTs=${fromTs}, toTs=${toTs}`);
         const members: string[] = await redis.zrangebyscore(
             `summary:payments:${processor.name}`,
             fromTs,
@@ -61,7 +57,6 @@ paymentsRoute.get('/payments-summary', async c => {
             totalAmount += amount;
             totalRequests++;
         }
-        console.log(`[Summary] ${processor.name} returned ${members.length} entries`);
         return { name: processor.name, totalAmount, totalRequests };
     }));
 

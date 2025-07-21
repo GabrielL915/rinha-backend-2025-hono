@@ -13,7 +13,6 @@
     "moduleDetection": "force",
     "isolatedModules": true,
     "noUncheckedIndexedAccess": true,
-    "allowJs": true,
     "allowImportingTsExtensions": false,
     "noEmit": true,
     "emitDecoratorMetadata": true,
