@@ -3,8 +3,8 @@ import { getRedis } from './config/redis'
 import { paymentQueue } from './jobs/payment.queue'
 import { PROCESSORS, ADMIN_PURGE_PATH, RINHA_TOKEN } from './config/processors'
 
-const DEFAULT_PROCESSOR = 'http://localhost:8001'
-const FALLBACK_PROCESSOR = 'http://localhost:8002'
+const DEFAULT_PROCESSOR = process.env.PAYMENT_PROCESSOR_DEFAULT_URL
+const FALLBACK_PROCESSOR = process.env.PAYMENT_PROCESSOR_FALLBACK_URL
 
 export const paymentsRoute = new Hono()
 
