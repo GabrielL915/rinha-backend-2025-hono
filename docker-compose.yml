@@ -16,7 +16,7 @@ services:
       resources:
         limits:
           cpus: "0.15"
-          memory: "15MB"
+          memory: "20MB"
 
   api01:
     image: gabriell915/api-rinha-backend-hono-2025:latest
@@ -34,7 +34,7 @@ services:
       resources:
         limits:
           cpus: "0.55"
-          memory: "30MB"
+          memory: "100MB"
   api02:
     image: gabriell915/api-rinha-backend-hono-2025:latest
     environment:
@@ -51,7 +51,7 @@ services:
       resources:
         limits:
           cpus: "0.55"
-          memory: "30MB"
+          memory: "100MB"
 
   redis:
     image: redis:7.2-alpine
@@ -70,7 +70,7 @@ services:
       resources:
         limits:
           cpus: "0.25"
-          memory: "275MB"
+          memory: "130MB"
 
 networks:
   backend:
