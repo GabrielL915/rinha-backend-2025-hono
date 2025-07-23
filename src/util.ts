@@ -1,9 +1,7 @@
-import { initializeRedis } from './config/redis'
 import { PROCESSORS } from './config/processors'
-import { startPaymentWorker } from './processors/payment.processor'
 import { processorHealthService } from './services/processor-health';
 
-async function waitUntilAtLeastOneProcessorAvailable(): Promise<void> {
+export async function waitUntilAtLeastOneProcessorAvailable(): Promise<void> {
   const maxRetries = 10
   const delayMs = 1000
 
@@ -29,6 +27,3 @@ async function waitUntilAtLeastOneProcessorAvailable(): Promise<void> {
 }
 
 
-await initializeRedis()
-await waitUntilAtLeastOneProcessorAvailable()
-startPaymentWorker()

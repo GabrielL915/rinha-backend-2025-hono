@@ -8,4 +8,4 @@ RUN bun install --frozen-lockfile
 
 COPY . .
 
-ENTRYPOINT []
+CMD ["sh", "-c", "bun run src/index.ts"]

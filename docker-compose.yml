@@ -15,12 +15,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.15"
-          memory: "20MB"
+          cpus: "0.2"
+          memory: "60MB"
 
   api01:
     image: gabriell915/api-rinha-backend-hono-2025:latest
-    command: bun run src/index.ts
     environment:
       - REDIS_URI=redis://redis:6379/
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
@@ -35,10 +34,9 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: "80MB"
+          memory: "120MB"
   api02:
     image: gabriell915/api-rinha-backend-hono-2025:latest
-    command: bun run src/index.ts
     environment:
       - REDIS_URI=redis://redis:6379/
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
@@ -53,23 +51,7 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: "80MB"
-  worker:
-    image: gabriell915/api-rinha-backend-hono-2025:latest
-    command: bun run src/index.ts
-    environment:
-      - REDIS_URI=redis://redis:6379/
-      - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
-      - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
-    networks:
-      - backend
-      - payment-processor
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: "60MB"
-
+          memory: "120MB"
   redis:
     image: redis:7.2-alpine
     container_name: rinha-redis
@@ -86,7 +68,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.10"
+          cpus: "0.3"
           memory: "50MB"
 
 networks:
