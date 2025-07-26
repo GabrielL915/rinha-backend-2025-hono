@@ -34,7 +34,7 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: "120MB"
+          memory: "100MB"
   api02:
     image: gabriell915/api-rinha-backend-hono-2025:latest
     environment:
@@ -51,11 +51,11 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: "120MB"
+          memory: "100MB"
   redis:
     image: redis:7.2-alpine
     container_name: rinha-redis
-    command: redis-server --save "" --appendonly no --maxclients 20000
+    command: redis-server --save "" --appendonly no --maxclients 1000
     ports:
       - "6379:6379"
     networks:
@@ -69,7 +69,7 @@ services:
       resources:
         limits:
           cpus: "0.3"
-          memory: "50MB"
+          memory: "70MB"
 
 networks:
   backend:

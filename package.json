@@ -3,7 +3,8 @@
   "type": "commonjs",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "worker": "bun run src/worker.ts"
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun run dist/index.js"
   },
   "dependencies": {
     "@types/ioredis": "^5.0.0",
