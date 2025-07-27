@@ -1,12 +1,10 @@
 import { Hono } from 'hono'
 import { paymentsRoute } from './routes'
 import { initializeRedis } from './config/redis'
-import { waitUntilAtLeastOneProcessorAvailable } from './util'
-import { startPaymentWorker } from './processors/payment.processor'
+import { startPaymentWorker } from './jobs/worker'
 
 const app = new Hono()
 await initializeRedis()
-await waitUntilAtLeastOneProcessorAvailable()
 startPaymentWorker()
 
 

@@ -19789,22 +19789,24 @@ var REDIS_PORT = process.env.REDIS_PORT ?? "6379";
 var redisConnectionConfig = {
   host: REDIS_HOST,
   port: parseInt(REDIS_PORT, 10),
+  maxRetriesPerRequest: 3,
+  retryDelayOnFailover: 100,
+  enableReadyCheck: true,
+  maxLoadingTimeout: 5000,
+  lazyConnect: true,
   ...REDIS_URI ? { url: REDIS_URI } : {}
 };
 var connectionString = REDIS_URI ?? `redis://${REDIS_HOST}:${REDIS_PORT}`;
 var redisInstance = null;
 function createRedisConnection() {
   return new import_ioredis.default(connectionString, {
-    lazyConnect: true
+    ...redisConnectionConfig
   });
 }
 function setupRedisEventListeners(redis) {
   redis.on("connect", () => console.log("[Redis] connected"));
-  redis.on("ready", () => console.log("[Redis] ready to use"));
   redis.on("error", (err) => console.error("[Redis] connection or command error:", err));
   redis.on("close", () => console.warn("[Redis] connection closed"));
-  redis.on("reconnecting", (delay) => console.log(`[Redis] reconnecting in ${delay}ms`));
-  redis.on("end", () => console.log("[Redis] connection ended"));
 }
 async function initializeRedis() {
   if (redisInstance)
@@ -35679,8 +35681,8 @@ var PROCESSORS = [
     retryCount: 1
   }
 ];
-var HEALTH_CHECK_INTERVAL = 5000;
-var HEALTH_CACHE_TTL = 3000;
+var HEALTH_CHECK_INTERVAL = 15000;
+var HEALTH_CACHE_TTL = 1e4;
 var MAX_CONSECUTIVE_FAILURES = 3;
 var ADMIN_PURGE_PATH = "/admin/purge-payments";
 var RINHA_TOKEN = "123";
@@ -35688,6 +35690,9 @@ var RINHA_TOKEN = "123";
 // src/routes.ts
 var DEFAULT_PROCESSOR = process.env.PAYMENT_PROCESSOR_DEFAULT_URL;
 var FALLBACK_PROCESSOR = process.env.PAYMENT_PROCESSOR_FALLBACK_URL;
+var summaryCache = new Map;
+var SUMMARY_CACHE_TTL = parseInt(process.env.SUMMARY_CACHE_TTL || "60000", 10);
+var MAX_CACHE_SIZE = 50;
 var paymentsRoute = new Hono2;
 paymentsRoute.post("/payments", async (c) => {
   const redis = getRedis();
@@ -35704,10 +35709,10 @@ paymentsRoute.post("/payments", async (c) => {
   };
   await paymentQueue.add("process-payment", data, {
     jobId: data.correlationId,
-    attempts: 5,
-    backoff: { type: "exponential", delay: 2000 },
-    removeOnComplete: 100,
-    removeOnFail: 50
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1000 },
+    removeOnComplete: 50,
+    removeOnFail: 25
   });
   return c.json({ status: "enqueued" }, 202);
 });
@@ -35717,28 +35722,60 @@ paymentsRoute.get("/payments-summary", async (c) => {
   const toParam = c.req.query("to");
   const fromTs = fromParam ? Date.parse(fromParam) : 0;
   const toTs = toParam ? Date.parse(toParam) : Date.now();
-  const summary = await Promise.all(PROCESSORS.map(async (processor) => {
-    const members = await redis.zrangebyscore(`summary:payments:${processor.name}`, fromTs, toTs);
-    let totalAmount = 0;
-    let totalRequests = 0;
-    for (const m of members) {
-      const { amount } = JSON.parse(m);
-      totalAmount += amount;
-      totalRequests++;
+  const cacheKey = `${fromTs}-${toTs}`;
+  const cached = summaryCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < SUMMARY_CACHE_TTL) {
+    return c.json(cached.data);
+  }
+  try {
+    const pipeline = redis.pipeline();
+    PROCESSORS.forEach((processor) => {
+      pipeline.zrangebyscore(`summary:payments:${processor.name}`, fromTs, toTs);
+    });
+    const results = await pipeline.exec();
+    if (!results) {
+      throw new Error("Pipeline execution failed");
     }
-    return { name: processor.name, totalAmount, totalRequests };
-  }));
-  const response = {};
-  summary.forEach((item) => {
-    response[item.name] = {
-      totalRequests: item.totalRequests,
-      totalAmount: item.totalAmount
-    };
-  });
-  return c.json(response);
+    const response = {};
+    results.forEach((result, index) => {
+      const processor = PROCESSORS[index];
+      const members = result[1];
+      let totalAmount = 0;
+      const totalRequests = members.length;
+      if (totalRequests === 0) {
+        if (processor && processor.name) {
+          response[processor.name] = { totalRequests: 0, totalAmount: 0 };
+        } else {
+          response[`unknown_processor_${index}`] = { totalRequests: 0, totalAmount: 0 };
+        }
+        return;
+      }
+      for (const member of members) {
+        try {
+          const { amount } = JSON.parse(member);
+          totalAmount += amount;
+        } catch {}
+      }
+      if (processor && processor.name) {
+        response[processor.name] = { totalRequests, totalAmount };
+      } else {
+        response[`unknown_processor_${index}`] = { totalRequests, totalAmount };
+      }
+    });
+    summaryCache.set(cacheKey, { data: response, timestamp: Date.now() });
+    if (summaryCache.size > MAX_CACHE_SIZE) {
+      const keysToDelete = Array.from(summaryCache.keys()).slice(0, summaryCache.size - MAX_CACHE_SIZE);
+      keysToDelete.forEach((key) => summaryCache.delete(key));
+    }
+    return c.json(response);
+  } catch (error) {
+    console.error("[Summary] Error:", error);
+    return c.json({ error: "Failed to fetch summary" }, 500);
+  }
 });
 paymentsRoute.post("/purge-payments", async (c) => {
   const redis = getRedis();
+  summaryCache.clear();
   const redisKeys = [
     "payment_queue",
     "payments:ids",
@@ -35749,11 +35786,13 @@ paymentsRoute.post("/purge-payments", async (c) => {
   const results = await Promise.allSettled([
     fetch(DEFAULT_PROCESSOR + ADMIN_PURGE_PATH, {
       method: "POST",
-      headers: { "X-Rinha-Token": RINHA_TOKEN }
+      headers: { "X-Rinha-Token": RINHA_TOKEN },
+      keepalive: false
     }),
     fetch(FALLBACK_PROCESSOR + ADMIN_PURGE_PATH, {
       method: "POST",
-      headers: { "X-Rinha-Token": RINHA_TOKEN }
+      headers: { "X-Rinha-Token": RINHA_TOKEN },
+      keepalive: false
     })
   ]);
   const [defaultResult, fallbackResult] = results.map((r) => {
@@ -35777,15 +35816,20 @@ paymentsRoute.post("/purge-payments", async (c) => {
 // src/services/processor-health.ts
 class ProcessorHealthService {
   healthCache = {};
+  activeHealthChecks = new Set;
   async isProcessorHealthy(processor) {
     const now = Date.now();
     const cached = this.healthCache[processor.url];
     if (cached && now - cached.lastCheck < HEALTH_CACHE_TTL) {
       return cached.status && cached.consecutiveFailures < MAX_CONSECUTIVE_FAILURES;
     }
+    if (this.activeHealthChecks.has(processor.url)) {
+      return cached?.status ?? false;
+    }
     return this.checkHealth(processor);
   }
   async checkHealth(processor) {
+    this.activeHealthChecks.add(processor.url);
     const now = Date.now();
     const startTime = now;
     try {
@@ -35793,7 +35837,8 @@ class ProcessorHealthService {
       const timeoutId = setTimeout(() => controller.abort(), processor.timeout);
       const res = await fetch(`${processor.url}/payments/service-health`, {
         signal: controller.signal,
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
+        keepalive: false
       });
       clearTimeout(timeoutId);
       if (!res.ok) {
@@ -35807,6 +35852,8 @@ class ProcessorHealthService {
     } catch (error) {
       this.recordFailure(processor.url, now - startTime);
       return false;
+    } finally {
+      this.activeHealthChecks.delete(processor.url);
     }
   }
   recordResult(url, healthy, responseTime) {
@@ -35831,51 +35878,31 @@ class ProcessorHealthService {
     return this.healthCache[url] || null;
   }
   async selectBestProcessor(processors) {
-    const healthyProcessors = [];
-    for (const processor of processors) {
+    const sortedProcessors = [...processors].sort((a, b) => a.priority - b.priority);
+    for (const processor of sortedProcessors) {
       const isHealthy = await this.isProcessorHealthy(processor);
       if (isHealthy) {
-        const healthStatus = this.getHealthStatus(processor.url);
-        healthyProcessors.push({
-          processor,
-          responseTime: healthStatus?.responseTime || Infinity
-        });
+        return processor;
       }
     }
-    if (healthyProcessors.length === 0) {
-      return null;
-    }
-    healthyProcessors.sort((a, b) => {
-      if (a.processor.priority !== b.processor.priority) {
-        return a.processor.priority - b.processor.priority;
-      }
-      return a.responseTime - b.responseTime;
-    });
-    const bestProcessor = healthyProcessors[0];
-    return bestProcessor ? bestProcessor.processor : null;
+    return null;
   }
 }
 var processorHealthService = new ProcessorHealthService;
 
 // src/util.ts
 async function waitUntilAtLeastOneProcessorAvailable() {
-  const maxRetries = 10;
-  const delayMs = 1000;
+  const maxRetries = 5;
+  const delayMs = 2000;
   for (let i = 0;i < maxRetries; i++) {
-    let available = false;
-    for (const processor of PROCESSORS) {
-      const isHealthy = await processorHealthService.isProcessorHealthy(processor);
-      if (isHealthy) {
-        available = true;
-        break;
-      }
-    }
-    if (available) {
+    const healthChecks = PROCESSORS.map((processor) => processorHealthService.isProcessorHealthy(processor));
+    const healthResults = await Promise.all(healthChecks);
+    if (healthResults.some((isHealthy) => isHealthy)) {
       return;
     }
-    await new Promise((res) => setTimeout(res, delayMs));
+    await new Promise((res) => setTimeout(res, delayMs * (i + 1)));
   }
-  throw new Error("No processor is available after many requests.");
+  throw new Error("No processor is available after startup checks.");
 }
 
 // src/services/payment.service.ts
@@ -35926,7 +35953,10 @@ class PaymentService {
       } catch (error) {
         lastError = error instanceof Error ? error.message : "Unknown error";
         if (attempt < processor.retryCount && !lastError.includes("abort")) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+          const baseDelay = 1000 * Math.pow(2, attempt);
+          const jitter = Math.random() * 500;
+          const delay2 = baseDelay + jitter;
+          await new Promise((resolve) => setTimeout(resolve, delay2));
         }
       }
     }
@@ -35948,6 +35978,7 @@ class PaymentService {
       pipeline.zadd(keyZset, score, memberData);
       await pipeline.exec();
     } catch (error) {
+      console.error("[PaymentService] Failed to update metrics:", error);
       throw error;
     }
   }
@@ -35957,6 +35988,7 @@ var paymentService = new PaymentService;
 // src/processors/payment.processor.ts
 var queueName = "payment_queue";
 var startPaymentWorker = () => {
+  const concurrency = parseInt(process.env.WORKER_CONCURRENCY || "10", 10);
   const worker2 = new Worker2(queueName, async (job2) => {
     const result = await paymentService.processPayment(job2.data);
     if (result.success) {
@@ -35965,40 +35997,59 @@ var startPaymentWorker = () => {
       throw new Error(result.error);
     }
   }, {
-    connection: redisConnectionConfig,
-    concurrency: 10,
-    autorun: false
+    connection: {
+      ...redisConnectionConfig,
+      maxRetriesPerRequest: 1
+    },
+    concurrency,
+    autorun: false,
+    stalledInterval: 6000,
+    maxStalledCount: 1
   });
   worker2.on("failed", (job2, err) => {
     console.error(`[Worker] Job ${job2?.id} failed:`, err.message);
   });
-  worker2.on("completed", (job2, result) => {
-    console.log(`[Worker] Job ${job2.id} completed successfully`);
-  });
+  worker2.on("completed", (job2, result) => {});
+  let isHealthCheckRunning = false;
+  let lastHealthyCheck = Date.now();
   const healthCheckInterval = setInterval(async () => {
+    if (isHealthCheckRunning)
+      return;
+    isHealthCheckRunning = true;
     try {
+      const now = Date.now();
+      if (!worker2.isPaused() && now - lastHealthyCheck < 30000) {
+        return;
+      }
       const healthyProcessor = await processorHealthService.selectBestProcessor(PROCESSORS);
       if (!healthyProcessor) {
         if (!worker2.isPaused()) {
+          console.log("[Worker] Pausing - no healthy processors");
           await worker2.pause();
         }
       } else {
+        lastHealthyCheck = now;
         if (worker2.isPaused()) {
+          console.log("[Worker] Resuming - healthy processor found");
           worker2.resume();
         }
       }
     } catch (error) {
       console.error("[Worker] Health check failed:", error);
+    } finally {
+      isHealthCheckRunning = false;
     }
   }, HEALTH_CHECK_INTERVAL);
-  process.on("SIGINT", async () => {
+  const shutdown = async () => {
     console.log("[Worker] Gracefully shutting down...");
     clearInterval(healthCheckInterval);
     await worker2.close();
     process.exit(0);
-  });
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
   worker2.run();
-  console.log("[Worker] Started with health monitoring");
+  console.log(`[Worker] Started with concurrency: ${concurrency}`);
   return worker2;
 };
 

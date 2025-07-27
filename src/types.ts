@@ -9,11 +9,17 @@ export interface HealthResponse {
     minResponseTime: number;
 }
 
+export type ProcessorName = 'default' | 'fallback' | '';
+
+export interface ChooseResult {
+    success: boolean;
+    processor: ProcessorName;
+}
+
 export interface ProcessorConfig {
     url: string;
     name: string;
     priority: number;
-    timeout: number;
     retryCount: number;
 }
 
