@@ -1,11 +1,9 @@
 import Redis from 'ioredis'
 
 export const REDIS_URI = process.env.REDIS_URI
-export const REDIS_HOST = process.env.REDIS_HOST ?? 'localhost'
-export const REDIS_PORT = process.env.REDIS_PORT ?? '6379'
 
 export const redisConnectionConfig = {
-    url: REDIS_URI ?? `redis://${REDIS_HOST}:${REDIS_PORT}`,
+    url: REDIS_URI,
     // OTIMIZAÇÃO: Configurações de retry otimizadas
     // maxRetriesPerRequest: 3,
     // retryDelayOnFailover: 100,
