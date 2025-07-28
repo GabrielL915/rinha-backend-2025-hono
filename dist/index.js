@@ -18312,18 +18312,18 @@ var require_node_abort_controller = __commonJS((exports, module) => {
       }
     }
     static abort(reason) {
-      const controller = new AbortController2;
+      const controller = new AbortController;
       controller.abort();
       return controller.signal;
     }
     static timeout(time) {
-      const controller = new AbortController2;
+      const controller = new AbortController;
       setTimeout(() => controller.abort(new Error("TimeoutError")), time);
       return controller.signal;
     }
   }
 
-  class AbortController2 {
+  class AbortController {
     constructor() {
       this.signal = new AbortSignal;
     }
@@ -18344,7 +18344,7 @@ var require_node_abort_controller = __commonJS((exports, module) => {
       return "AbortController";
     }
   }
-  module.exports = { AbortController: AbortController2, AbortSignal };
+  module.exports = { AbortController, AbortSignal };
 });
 
 // node_modules/hono/dist/compose.js
@@ -19787,24 +19787,17 @@ var REDIS_URI = process.env.REDIS_URI;
 var REDIS_HOST = process.env.REDIS_HOST ?? "localhost";
 var REDIS_PORT = process.env.REDIS_PORT ?? "6379";
 var redisConnectionConfig = {
-  host: REDIS_HOST,
-  port: parseInt(REDIS_PORT, 10),
-  maxRetriesPerRequest: 3,
-  retryDelayOnFailover: 100,
-  enableReadyCheck: true,
-  maxLoadingTimeout: 5000,
-  lazyConnect: true,
-  ...REDIS_URI ? { url: REDIS_URI } : {}
+  url: REDIS_URI ?? `redis://${REDIS_HOST}:${REDIS_PORT}`,
+  lazyConnect: true
 };
-var connectionString = REDIS_URI ?? `redis://${REDIS_HOST}:${REDIS_PORT}`;
 var redisInstance = null;
 function createRedisConnection() {
-  return new import_ioredis.default(connectionString, {
-    ...redisConnectionConfig
-  });
+  return new import_ioredis.default(redisConnectionConfig);
 }
 function setupRedisEventListeners(redis) {
-  redis.on("connect", () => console.log("[Redis] connected"));
+  redis.on("connect", () => {
+    console.log("[Redis] connected successfully");
+  });
   redis.on("error", (err) => console.error("[Redis] connection or command error:", err));
   redis.on("close", () => console.warn("[Redis] connection closed"));
 }
@@ -19814,13 +19807,6 @@ async function initializeRedis() {
   const redis = createRedisConnection();
   setupRedisEventListeners(redis);
   try {
-    console.log("[Redis] started...");
-    await redis.connect();
-    const pong = await redis.ping();
-    if (pong !== "PONG") {
-      throw new Error(`Unexpected ping: ${pong}`);
-    }
-    console.log("[Redis] ping OK, connection established");
     redisInstance = redis;
     return redisInstance;
   } catch (err) {
@@ -19837,6 +19823,13 @@ function getRedis() {
   }
   return redisInstance;
 }
+function scheduleHealthChecks(queue) {
+  queue.upsertJobScheduler(queue.name, { every: 5000 });
+}
+
+// src/config/processors.ts
+var ADMIN_PURGE_PATH = "/admin/purge-payments";
+var RINHA_TOKEN = "123";
 
 // node_modules/bullmq/dist/esm/classes/async-fifo-queue.js
 class Node3 {
@@ -35659,130 +35652,148 @@ var ClientType;
   ClientType2["blocking"] = "blocking";
   ClientType2["normal"] = "normal";
 })(ClientType || (ClientType = {}));
-// src/jobs/payment.queue.ts
+// src/jobs/queue.ts
 var paymentQueue = new Queue("payment_queue", {
   connection: redisConnectionConfig
 });
+var healthCheckQueue = new Queue("health_queue", {
+  connection: redisConnectionConfig
+});
 
-// src/config/processors.ts
-var PROCESSORS = [
-  {
-    url: process.env.PAYMENT_PROCESSOR_DEFAULT_URL,
-    name: "default",
-    priority: 1,
-    timeout: 3000,
-    retryCount: 2
-  },
-  {
-    url: process.env.PAYMENT_PROCESSOR_FALLBACK_URL,
-    name: "fallback",
-    priority: 2,
-    timeout: 2000,
-    retryCount: 1
+// src/api/payment-processor.ts
+async function fetchPaymentProcessor(url, data) {
+  const paymentsEndpoint = await fetch(`${url}/payments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  if (!paymentsEndpoint.ok) {
+    return {
+      success: false,
+      error: "Failed to process payment"
+    };
   }
-];
-var HEALTH_CHECK_INTERVAL = 15000;
-var HEALTH_CACHE_TTL = 1e4;
-var MAX_CONSECUTIVE_FAILURES = 3;
-var ADMIN_PURGE_PATH = "/admin/purge-payments";
-var RINHA_TOKEN = "123";
+  return {
+    success: paymentsEndpoint.ok
+  };
+}
+async function fetchPaymentProcessorHealth(url) {
+  const healthEndpoint = await fetch(`${url}/payments/service-health`, {
+    headers: { "Content-Type": "application/json" }
+  });
+  if (!healthEndpoint.ok) {
+    return {
+      failing: true,
+      minResponseTime: 0
+    };
+  }
+  const healthData = await healthEndpoint.json();
+  return {
+    failing: healthData.failing,
+    minResponseTime: healthData.responseTime
+  };
+}
+
+// src/services/payment.service.ts
+async function processPayment(data) {
+  const redis = getRedis();
+  const processorPayload = await redis.get("processor");
+  if (!processorPayload) {
+    return {
+      success: false,
+      error: "No available payment processor"
+    };
+  }
+  const { name: processor, url } = JSON.parse(processorPayload);
+  if (!url) {
+    return {
+      success: false,
+      error: "No available payment processor"
+    };
+  }
+  const result = await fetchPaymentProcessor(url, data);
+  if (!result.success) {
+    return result;
+  }
+  return {
+    correlationId: data.correlationId,
+    amount: data.amount,
+    requestedAt: data.requestedAt,
+    processor
+  };
+}
+async function savePaymentDataToRedis(data) {
+  const redis = getRedis();
+  await redis.lpush("payment", JSON.stringify(data));
+}
+async function getPaymentDataFromRedis(redis) {
+  const raw2 = await redis.lrange("payment", 0, -1);
+  const payments = raw2.map((item) => JSON.parse(item));
+  return payments;
+}
+async function paymentSummary(from, to) {
+  const redis = getRedis();
+  const payments = await getPaymentDataFromRedis(redis);
+  const fromTs = from ? Date.parse(from) : -Infinity;
+  const toTs = to ? Date.parse(to) : Infinity;
+  const summary = {
+    default: { totalRequests: 0, totalAmount: 0 },
+    fallback: { totalRequests: 0, totalAmount: 0 }
+  };
+  for (const payment of payments) {
+    const requestedAt = Date.parse(payment.requestedAt);
+    if (requestedAt < fromTs || requestedAt > toTs) {
+      continue;
+    }
+    summary[payment.processor].totalRequests++;
+    summary[payment.processor].totalAmount += payment.amount;
+  }
+  delete summary[""];
+  return summary;
+}
 
 // src/routes.ts
 var DEFAULT_PROCESSOR = process.env.PAYMENT_PROCESSOR_DEFAULT_URL;
 var FALLBACK_PROCESSOR = process.env.PAYMENT_PROCESSOR_FALLBACK_URL;
-var summaryCache = new Map;
-var SUMMARY_CACHE_TTL = parseInt(process.env.SUMMARY_CACHE_TTL || "60000", 10);
-var MAX_CACHE_SIZE = 50;
 var paymentsRoute = new Hono2;
 paymentsRoute.post("/payments", async (c) => {
-  const redis = getRedis();
   const body = await c.req.json();
-  if (!body.correlationId || typeof body.amount !== "number" || body.amount <= 0) {
-    return c.json({ error: "Invalid input" }, 400);
-  }
-  const added = await redis.sadd("payments:ids", body.correlationId);
-  if (added === 0)
-    return c.json({ error: "correlationId must be unique" }, 409);
+  const requestedAt = new Date().toISOString();
   const data = {
-    correlationId: body.correlationId,
-    amount: body.amount
+    ...body,
+    requestedAt
   };
-  await paymentQueue.add("process-payment", data, {
-    jobId: data.correlationId,
+  await paymentQueue.add("payment_queue", data, {
+    jobId: body.correlationId,
     attempts: 3,
-    backoff: { type: "exponential", delay: 1000 },
-    removeOnComplete: 50,
-    removeOnFail: 25
+    backoff: {
+      type: "fixed",
+      delay: 1000
+    }
   });
-  return c.json({ status: "enqueued" }, 202);
+  return c.json({ status: "queued" }, 202);
 });
 paymentsRoute.get("/payments-summary", async (c) => {
-  const redis = getRedis();
   const fromParam = c.req.query("from");
   const toParam = c.req.query("to");
-  const fromTs = fromParam ? Date.parse(fromParam) : 0;
-  const toTs = toParam ? Date.parse(toParam) : Date.now();
-  const cacheKey = `${fromTs}-${toTs}`;
-  const cached = summaryCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < SUMMARY_CACHE_TTL) {
-    return c.json(cached.data);
-  }
-  try {
-    const pipeline = redis.pipeline();
-    PROCESSORS.forEach((processor) => {
-      pipeline.zrangebyscore(`summary:payments:${processor.name}`, fromTs, toTs);
-    });
-    const results = await pipeline.exec();
-    if (!results) {
-      throw new Error("Pipeline execution failed");
+  const summary = await paymentSummary(fromParam, toParam);
+  return c.json({
+    default: {
+      totalRequests: summary.default.totalRequests,
+      totalAmount: summary.default.totalAmount
+    },
+    fallback: {
+      totalRequests: summary.fallback.totalRequests,
+      totalAmount: summary.fallback.totalAmount
     }
-    const response = {};
-    results.forEach((result, index) => {
-      const processor = PROCESSORS[index];
-      const members = result[1];
-      let totalAmount = 0;
-      const totalRequests = members.length;
-      if (totalRequests === 0) {
-        if (processor && processor.name) {
-          response[processor.name] = { totalRequests: 0, totalAmount: 0 };
-        } else {
-          response[`unknown_processor_${index}`] = { totalRequests: 0, totalAmount: 0 };
-        }
-        return;
-      }
-      for (const member of members) {
-        try {
-          const { amount } = JSON.parse(member);
-          totalAmount += amount;
-        } catch {}
-      }
-      if (processor && processor.name) {
-        response[processor.name] = { totalRequests, totalAmount };
-      } else {
-        response[`unknown_processor_${index}`] = { totalRequests, totalAmount };
-      }
-    });
-    summaryCache.set(cacheKey, { data: response, timestamp: Date.now() });
-    if (summaryCache.size > MAX_CACHE_SIZE) {
-      const keysToDelete = Array.from(summaryCache.keys()).slice(0, summaryCache.size - MAX_CACHE_SIZE);
-      keysToDelete.forEach((key) => summaryCache.delete(key));
-    }
-    return c.json(response);
-  } catch (error) {
-    console.error("[Summary] Error:", error);
-    return c.json({ error: "Failed to fetch summary" }, 500);
-  }
+  }, 200);
 });
 paymentsRoute.post("/purge-payments", async (c) => {
   const redis = getRedis();
-  summaryCache.clear();
-  const redisKeys = [
-    "payment_queue",
-    "payments:ids",
-    "summary:requests",
-    "summary:amount"
-  ];
-  await redis.del(...redisKeys);
+  await Promise.all([
+    redis.del("payments"),
+    redis.del("processor")
+  ]);
   const results = await Promise.allSettled([
     fetch(DEFAULT_PROCESSOR + ADMIN_PURGE_PATH, {
       method: "POST",
@@ -35813,251 +35824,93 @@ paymentsRoute.post("/purge-payments", async (c) => {
   });
 });
 
-// src/services/processor-health.ts
-class ProcessorHealthService {
-  healthCache = {};
-  activeHealthChecks = new Set;
-  async isProcessorHealthy(processor) {
-    const now = Date.now();
-    const cached = this.healthCache[processor.url];
-    if (cached && now - cached.lastCheck < HEALTH_CACHE_TTL) {
-      return cached.status && cached.consecutiveFailures < MAX_CONSECUTIVE_FAILURES;
-    }
-    if (this.activeHealthChecks.has(processor.url)) {
-      return cached?.status ?? false;
-    }
-    return this.checkHealth(processor);
-  }
-  async checkHealth(processor) {
-    this.activeHealthChecks.add(processor.url);
-    const now = Date.now();
-    const startTime = now;
-    try {
-      const controller = new AbortController;
-      const timeoutId = setTimeout(() => controller.abort(), processor.timeout);
-      const res = await fetch(`${processor.url}/payments/service-health`, {
-        signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
-        keepalive: false
+// src/services/health.service.ts
+async function paymentProcessorHealthCheck() {
+  const redis = getRedis();
+  const defaultProcessorUrl = process.env.PAYMENT_PROCESSOR_DEFAULT_URL;
+  const fallbackProcessorUrl = process.env.PAYMENT_PROCESSOR_FALLBACK_URL;
+  const [defaultRes, fallbackRes] = await Promise.all([
+    fetchPaymentProcessorHealth(defaultProcessorUrl),
+    fetchPaymentProcessorHealth(fallbackProcessorUrl)
+  ]);
+  if (!defaultRes.failing || !fallbackRes.failing) {
+    const choice = choosePaymentProcessor(defaultRes, fallbackRes);
+    if (choice.success) {
+      const selectedUrl = choice.processor === "default" ? defaultProcessorUrl : fallbackProcessorUrl;
+      const payload = JSON.stringify({
+        name: choice.processor,
+        url: selectedUrl
       });
-      clearTimeout(timeoutId);
-      if (!res.ok) {
-        this.recordFailure(processor.url, now - startTime);
-        return false;
-      }
-      const json = await res.json();
-      const healthy = !json.failing;
-      this.recordResult(processor.url, healthy, now - startTime);
-      return healthy;
-    } catch (error) {
-      this.recordFailure(processor.url, now - startTime);
-      return false;
-    } finally {
-      this.activeHealthChecks.delete(processor.url);
+      await redis.set("processor", payload);
+    } else {
+      await redis.del("processor");
     }
+    return choice;
   }
-  recordResult(url, healthy, responseTime) {
-    const existing = this.healthCache[url];
-    this.healthCache[url] = {
-      status: healthy,
-      lastCheck: Date.now(),
-      responseTime,
-      consecutiveFailures: healthy ? 0 : (existing?.consecutiveFailures || 0) + 1
-    };
+  return { success: false, processor: "" };
+}
+function choosePaymentProcessor(defaultProcessor, fallbackProcessor) {
+  const defaultResponseTime = 2.5;
+  const defaultHealthy = !defaultProcessor.failing;
+  const fallbackHealthy = !fallbackProcessor.failing;
+  if (!defaultHealthy && !fallbackHealthy) {
+    return { success: false, error: "No available payment processor" };
   }
-  recordFailure(url, responseTime) {
-    const existing = this.healthCache[url];
-    this.healthCache[url] = {
-      status: false,
-      lastCheck: Date.now(),
-      responseTime,
-      consecutiveFailures: (existing?.consecutiveFailures || 0) + 1
-    };
+  if (defaultHealthy && fallbackHealthy) {
+    const ratio = defaultProcessor.minResponseTime / fallbackProcessor.minResponseTime;
+    const pick = ratio > defaultResponseTime ? "fallback" : "default";
+    return { success: true, processor: pick };
   }
-  getHealthStatus(url) {
-    return this.healthCache[url] || null;
-  }
-  async selectBestProcessor(processors) {
-    const sortedProcessors = [...processors].sort((a, b) => a.priority - b.priority);
-    for (const processor of sortedProcessors) {
-      const isHealthy = await this.isProcessorHealthy(processor);
-      if (isHealthy) {
-        return processor;
-      }
-    }
-    return null;
+  if (defaultHealthy) {
+    return { success: true, processor: "default" };
+  } else {
+    return { success: true, processor: "fallback" };
   }
 }
-var processorHealthService = new ProcessorHealthService;
 
-// src/util.ts
-async function waitUntilAtLeastOneProcessorAvailable() {
-  const maxRetries = 5;
-  const delayMs = 2000;
-  for (let i = 0;i < maxRetries; i++) {
-    const healthChecks = PROCESSORS.map((processor) => processorHealthService.isProcessorHealthy(processor));
-    const healthResults = await Promise.all(healthChecks);
-    if (healthResults.some((isHealthy) => isHealthy)) {
-      return;
-    }
-    await new Promise((res) => setTimeout(res, delayMs * (i + 1)));
-  }
-  throw new Error("No processor is available after startup checks.");
-}
-
-// src/services/payment.service.ts
-class PaymentService {
-  get redis() {
-    return getRedis();
-  }
-  async processPayment(data) {
-    const now = new Date().toISOString();
-    const paymentData = { ...data, requestedAt: now };
-    const selectedProcessor = await processorHealthService.selectBestProcessor(PROCESSORS);
-    if (!selectedProcessor) {
-      return {
-        success: false,
-        error: "No processors available"
-      };
-    }
-    const result = await this.callProcessor(selectedProcessor, paymentData);
-    if (result.success) {
-      return {
-        success: true,
-        processor: selectedProcessor.name
-      };
-    }
-    return result;
-  }
-  async callProcessor(processor, data) {
-    let lastError = "";
-    for (let attempt = 0;attempt <= processor.retryCount; attempt++) {
-      try {
-        const controller = new AbortController;
-        const timeoutId = setTimeout(() => controller.abort(), processor.timeout);
-        const res = await fetch(`${processor.url}/payments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        if (res.ok) {
-          await this.updateMetrics(processor, data.correlationId, data.amount, data.requestedAt);
-          return { success: true };
-        }
-        lastError = `HTTP ${res.status}: ${res.statusText}`;
-        if (res.status >= 400 && res.status < 500) {
-          break;
-        }
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : "Unknown error";
-        if (attempt < processor.retryCount && !lastError.includes("abort")) {
-          const baseDelay = 1000 * Math.pow(2, attempt);
-          const jitter = Math.random() * 500;
-          const delay2 = baseDelay + jitter;
-          await new Promise((resolve) => setTimeout(resolve, delay2));
-        }
-      }
-    }
-    return {
-      success: false,
-      error: lastError
-    };
-  }
-  async updateMetrics(processor, correlationId, amount, requestedAt) {
-    const keyReqs = "summary:requests";
-    const keyAmts = "summary:amount";
-    const keyZset = `summary:payments:${processor.name}`;
-    const score = Date.parse(requestedAt);
-    const memberData = JSON.stringify({ correlationId, amount, requestedAt });
+// src/jobs/worker.ts
+var paymentqueueName = "payment_queue";
+var healthQueueName = "health_queue";
+var startPaymentWorker = () => {
+  const worker2 = new Worker2(paymentqueueName, async (job2) => {
     try {
-      const pipeline = this.redis.pipeline();
-      pipeline.hincrby(keyReqs, processor.name, 1);
-      pipeline.hincrbyfloat(keyAmts, processor.name, amount);
-      pipeline.zadd(keyZset, score, memberData);
-      await pipeline.exec();
+      const data = job2.data;
+      return await processPayment(data);
     } catch (error) {
-      console.error("[PaymentService] Failed to update metrics:", error);
+      if (typeof error === "object" && error !== null && "message" in error && error.message === "No available payment processor") {
+        await paymentQueue.add(job2.name, job2.data, {
+          jobId: job2.id,
+          delay: 2000
+        });
+        return { requeued: true };
+      }
       throw error;
     }
-  }
-}
-var paymentService = new PaymentService;
-
-// src/processors/payment.processor.ts
-var queueName = "payment_queue";
-var startPaymentWorker = () => {
-  const concurrency = parseInt(process.env.WORKER_CONCURRENCY || "10", 10);
-  const worker2 = new Worker2(queueName, async (job2) => {
-    const result = await paymentService.processPayment(job2.data);
-    if (result.success) {
-      return result;
-    } else {
-      throw new Error(result.error);
-    }
   }, {
-    connection: {
-      ...redisConnectionConfig,
-      maxRetriesPerRequest: 1
-    },
-    concurrency,
-    autorun: false,
-    stalledInterval: 6000,
-    maxStalledCount: 1
+    connection: redisConnectionConfig,
+    concurrency: 10,
+    autorun: false
   });
-  worker2.on("failed", (job2, err) => {
-    console.error(`[Worker] Job ${job2?.id} failed:`, err.message);
+  worker2.on("completed", async (job2) => {
+    const result = job2.returnvalue;
+    await savePaymentDataToRedis(result);
   });
-  worker2.on("completed", (job2, result) => {});
-  let isHealthCheckRunning = false;
-  let lastHealthyCheck = Date.now();
-  const healthCheckInterval = setInterval(async () => {
-    if (isHealthCheckRunning)
-      return;
-    isHealthCheckRunning = true;
-    try {
-      const now = Date.now();
-      if (!worker2.isPaused() && now - lastHealthyCheck < 30000) {
-        return;
-      }
-      const healthyProcessor = await processorHealthService.selectBestProcessor(PROCESSORS);
-      if (!healthyProcessor) {
-        if (!worker2.isPaused()) {
-          console.log("[Worker] Pausing - no healthy processors");
-          await worker2.pause();
-        }
-      } else {
-        lastHealthyCheck = now;
-        if (worker2.isPaused()) {
-          console.log("[Worker] Resuming - healthy processor found");
-          worker2.resume();
-        }
-      }
-    } catch (error) {
-      console.error("[Worker] Health check failed:", error);
-    } finally {
-      isHealthCheckRunning = false;
-    }
-  }, HEALTH_CHECK_INTERVAL);
-  const shutdown = async () => {
-    console.log("[Worker] Gracefully shutting down...");
-    clearInterval(healthCheckInterval);
-    await worker2.close();
-    process.exit(0);
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-  worker2.run();
-  console.log(`[Worker] Started with concurrency: ${concurrency}`);
-  return worker2;
+};
+var startHealthWorker = () => {
+  const worker2 = new Worker2(healthQueueName, async () => {
+    await paymentProcessorHealthCheck();
+  }, {
+    connection: redisConnectionConfig,
+    concurrency: 1
+  });
 };
 
 // src/index.ts
 var app = new Hono2;
 await initializeRedis();
-await waitUntilAtLeastOneProcessorAvailable();
 startPaymentWorker();
+startHealthWorker();
+scheduleHealthChecks(healthCheckQueue);
 app.route("/", paymentsRoute);
 var src_default = {
   port: 9999,

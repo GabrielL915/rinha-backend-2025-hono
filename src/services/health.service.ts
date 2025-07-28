@@ -40,7 +40,7 @@ export function choosePaymentProcessor(defaultProcessor: HealthResponse, fallbac
     const fallbackHealthy = !fallbackProcessor.failing;
 
     if (!defaultHealthy && !fallbackHealthy) {
-        return { success: false, processor: '' };
+        return { success: false, error: 'No available payment processor' };
     }
 
     if (defaultHealthy && fallbackHealthy) {
