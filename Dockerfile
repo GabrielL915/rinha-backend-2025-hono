@@ -8,11 +8,13 @@ RUN bun install --frozen-lockfile
 
 COPY . .
 
+RUN bun run build
+
 FROM oven/bun:1.2.18-alpine AS dev
 
 WORKDIR /app
 
-COPY --from=builder /app /app
+COPY --from=builder /app .
 
 CMD ["bun", "run", "dev"]
 
