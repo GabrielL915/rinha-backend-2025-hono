@@ -2,20 +2,17 @@ import Redis from 'ioredis'
 
 export const REDIS_URI = process.env.REDIS_URI
 
-export const redisConnectionConfig = {
-    url: REDIS_URI,
-    // OTIMIZAÇÃO: Configurações de retry otimizadas
-    // maxRetriesPerRequest: 3,
-    // retryDelayOnFailover: 100,
-    // enableReadyCheck: true,
-    // maxLoadingTimeout: 5000,
-    lazyConnect: true,
-}
+export const redisConnectionConfig = new URL(REDIS_URI!)
+
 
 let redisInstance: Redis | null = null
 
 function createRedisConnection(): Redis {
-    return new Redis(redisConnectionConfig)
+    return new Redis({
+        host: redisConnectionConfig.hostname,
+        port: Number(redisConnectionConfig.port),
+        lazyConnect: true,
+    })
 }
 
 function setupRedisEventListeners(redis: Redis) {

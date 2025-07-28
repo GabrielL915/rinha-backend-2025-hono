@@ -25,7 +25,10 @@ export const startPaymentWorker = () => {
             throw error;
         }
     }, {
-        connection: redisConnectionConfig,
+        connection: {
+            host: redisConnectionConfig.hostname,
+            port: Number(redisConnectionConfig.port),
+        },
         concurrency: 10,
     }
     )
@@ -40,7 +43,10 @@ export const startHealthWorker = () => {
     const worker = new Worker(healthQueueName, async () => {
         await paymentProcessorHealthCheck();
     }, {
-        connection: redisConnectionConfig,
+        connection: {
+            host: redisConnectionConfig.hostname,
+            port: Number(redisConnectionConfig.port),
+        },
         concurrency: 1,
     }
     )
