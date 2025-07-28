@@ -41,15 +41,19 @@ export async function savePaymentDataToRedis(data: PaymentData) {
     await redis.lpush('payment', JSON.stringify(data));
 }
 
-async function getPaymentDataFromRedis(redis: ReturnType<typeof getRedis>) {
+async function getPaymentDataFromRedis() {
+    const redis = getRedis();
     const raw = await redis.lrange('payment', 0, -1);
-    const payments = raw.map(item => JSON.parse(item) as PaymentData);
-    return payments;
+    return raw
+        .map(item => {
+            try { return JSON.parse(item) as PaymentData; }
+            catch { return null; }
+        })
+        .filter((p): p is PaymentData => !!p);
 }
 
-export async function paymentSummary(from: string, to: string) {
-    const redis = getRedis();
-    const payments = await getPaymentDataFromRedis(redis);
+export async function paymentSummary(from?: string, to?: string) {
+    const payments = await getPaymentDataFromRedis();
 
     const fromTs = from ? Date.parse(from) : -Infinity;
     const toTs = to ? Date.parse(to) : Infinity;
@@ -59,16 +63,15 @@ export async function paymentSummary(from: string, to: string) {
         fallback: { totalRequests: 0, totalAmount: 0 }
     };
 
-    for (const payment of payments) {
-        const requestedAt = Date.parse(payment.requestedAt);
-        if (requestedAt < fromTs || requestedAt > toTs) {
-            continue;
-        }
-        summary[payment.processor as ProcessorName].totalRequests++;
-        summary[payment.processor as ProcessorName].totalAmount += payment.amount;
-    }
+    for (const p of payments) {
+        const ts = Date.parse(p.requestedAt);
+        if (ts < fromTs || ts > toTs) continue;
 
-    delete (summary as Record<string, SummaryValue>)[''];
+        if (p.processor === 'default' || p.processor === 'fallback') {
+            summary[p.processor].totalRequests += 1;
+            summary[p.processor].totalAmount += p.amount;
+        }
+    }
 
     return summary;
 

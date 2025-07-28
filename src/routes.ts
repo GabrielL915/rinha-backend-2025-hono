@@ -19,7 +19,7 @@ paymentsRoute.post('/payments', async c => {
         requestedAt,
     }
 
-    await paymentQueue.add('payment_queue', data, {
+    await paymentQueue.add('process-payment', data, {
         jobId: body.correlationId,
         attempts: 3,
         backoff: {

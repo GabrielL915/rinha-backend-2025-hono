@@ -27,7 +27,6 @@ export const startPaymentWorker = () => {
     }, {
         connection: redisConnectionConfig,
         concurrency: 10,
-        autorun: false,
     }
     )
 
