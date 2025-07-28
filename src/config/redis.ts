@@ -1,5 +1,4 @@
 import Redis from 'ioredis'
-import { Queue } from 'bullmq'
 
 export const REDIS_URI = process.env.REDIS_URI
 export const REDIS_HOST = process.env.REDIS_HOST ?? 'localhost'
@@ -63,8 +62,4 @@ export function getRedis(): Redis {
         throw new Error('Redis has not been initialized. Call initializeRedis() first.')
     }
     return redisInstance
-}
-
-export function scheduleHealthChecks(queue: Queue) {
-    queue.upsertJobScheduler(queue.name, { every: 5000 });
 }

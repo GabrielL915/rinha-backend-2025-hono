@@ -1,4 +1,4 @@
-import { Worker } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import { redisConnectionConfig } from "../config/redis";
 import { processPayment, savePaymentDataToRedis } from "../services/payment.service";
 import { paymentProcessorHealthCheck } from "../services/health.service";
@@ -44,4 +44,8 @@ export const startHealthWorker = () => {
         concurrency: 1,
     }
     )
+}
+
+export function scheduleHealthChecks(queue: Queue) {
+    queue.upsertJobScheduler(queue.name, { every: 5000 });
 }
