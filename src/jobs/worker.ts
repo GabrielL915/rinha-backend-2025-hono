@@ -4,6 +4,7 @@ import { processPayment, savePaymentDataToRedis } from "../services/payment.serv
 import { paymentProcessorHealthCheck } from "../services/health.service";
 import { PaymentData } from "../types";
 import { paymentQueue } from "./queue";
+import { getRedis } from "../config/redis";
 
 const paymentqueueName = 'payment_queue';
 const healthQueueName = 'health_queue';
@@ -37,6 +38,11 @@ export const startPaymentWorker = () => {
         const result = job.returnvalue as PaymentData
         await savePaymentDataToRedis(result);
     });
+
+    worker.on('failed', () => {
+        const redis = getRedis();
+        redis.set("processor", "fallback")
+    })
 }
 
 export const startHealthWorker = () => {
