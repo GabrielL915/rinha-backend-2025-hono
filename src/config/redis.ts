@@ -11,6 +11,10 @@ function createRedisConnection(): Redis {
     return new Redis({
         host: redisConnectionConfig.hostname,
         port: Number(redisConnectionConfig.port),
+         maxRetriesPerRequest: 3,
+        connectTimeout: 1500,
+        commandTimeout: 3000,
+        enableOfflineQueue: false,
         lazyConnect: true,
     })
 }
