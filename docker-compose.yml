@@ -55,13 +55,7 @@ services:
   redis:
     image: redis:7.2-alpine
     container_name: rinha-redis
-    command: >-
-      redis-server
-      --save ""
-       --appendonly no
-      --maxclients 1024
-      --maxmemory 50mb
-      --timeout 30
+    command: redis-server --save "" --appendonly no --maxclients 2048 --maxmemory 100mb --maxmemory-policy allkeys-lru --timeout 30 --tcp-keepalive 60
     ports:
       - "6379:6379"
     networks:
@@ -75,7 +69,7 @@ services:
       resources:
         limits:
           cpus: "0.2"
-          memory: "70MB"
+          memory: "120MB"
 
 networks:
   backend:
