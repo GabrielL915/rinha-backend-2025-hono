@@ -30,7 +30,7 @@ export const startPaymentWorker = () => {
             host: redisConnectionConfig.hostname,
             port: Number(redisConnectionConfig.port),
         },
-        concurrency: 11,
+        concurrency: 10,
     }
     )
 
@@ -39,10 +39,10 @@ export const startPaymentWorker = () => {
         await savePaymentDataToRedis(result);
     });
 
-    worker.on('failed', () => {
+    /* worker.on('failed', () => {
         const redis = getRedis();
         redis.set("processor", "fallback")
-    })
+    }) */
 }
 
 export const startHealthWorker = () => {
