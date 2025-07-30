@@ -15,7 +15,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.15"
+          cpus: "0.1"
           memory: "15MB"
 
   api01:
@@ -30,11 +30,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: "0.6"
-    #       memory: "65MB"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.7"
+          memory: "65MB"
   api02:
     image: ghcr.io/gabriell915/api-rinha-backend-hono-2025:latest
     environment:
@@ -47,11 +47,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: "0.5"
-    #       memory: "65MB"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "65MB"
   redis:
     image: redis:7.2-alpine
     container_name: rinha-redis
@@ -74,8 +74,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.3"
-          memory: "60MB"
+          cpus: "0.2"
+          memory: "70MB"
 
 networks:
   backend:

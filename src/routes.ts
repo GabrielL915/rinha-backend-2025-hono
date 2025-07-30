@@ -54,7 +54,7 @@ paymentsRoute.post('/purge-payments', async (c) => {
     const redis = getRedis()
 
     await Promise.all([
-        redis.del('payments'),
+        redis.del('payment'),
         redis.del('processor')
     ]);
 
