@@ -18,7 +18,7 @@ export const startPaymentWorker = () => {
             if (typeof error === "object" && error !== null && "message" in error && (error as any).message === 'No available payment processor') {
                 await paymentQueue.add(job.name, job.data, {
                     jobId: job.id,
-                    delay: 500
+                    delay: 3000
                 });
                 return { requeued: true };
             }
