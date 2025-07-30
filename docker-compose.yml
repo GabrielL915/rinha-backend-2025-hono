@@ -61,7 +61,6 @@ services:
        --appendonly no
       --maxclients 1024
       --maxmemory 50mb
-      --maxmemory-policy allkeys-lru
       --timeout 30
     ports:
       - "6379:6379"

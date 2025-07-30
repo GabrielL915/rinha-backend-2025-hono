@@ -14,7 +14,7 @@ function createRedisConnection(): Redis {
          maxRetriesPerRequest: 3,
         connectTimeout: 1500,
         commandTimeout: 3000,
-        enableOfflineQueue: false,
+        enableOfflineQueue: true,
         lazyConnect: true,
     })
 }
