@@ -27,11 +27,6 @@ export const startPaymentWorker = () => {
         const result = job.returnvalue as PaymentData
         await savePaymentDataToRedis(result);
     });
-
-    worker.on('failed', () => {
-        const redis = getRedis();
-        redis.set("processor", "fallback")
-    })
 }
 
 export const startHealthWorker = () => {

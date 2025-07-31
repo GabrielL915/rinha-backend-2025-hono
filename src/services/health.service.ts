@@ -1,6 +1,7 @@
 import { HealthResponse, ChooseResult, ProcessorName } from "../types";
 import { fetchPaymentProcessorHealth } from "../api/payment-processor";
 import { getRedis } from "../config/redis";
+import { recordSuccess } from "../circuit-breaker";
 
 export async function paymentProcessorHealthCheck() {
     const redis = getRedis();
@@ -16,6 +17,7 @@ export async function paymentProcessorHealthCheck() {
         const choice = choosePaymentProcessor(defaultRes, fallbackRes);
 
         if (choice.success) {
+            await recordSuccess(choice.processor);
             const selectedUrl = choice.processor === 'default' ? defaultProcessorUrl : fallbackProcessorUrl;
             const payload = JSON.stringify({
                 name: choice.processor,

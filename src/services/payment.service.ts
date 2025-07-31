@@ -1,6 +1,39 @@
 import { getRedis } from '../config/redis';
 import { PaymentData, ProcessorName, SummaryValue } from '../types';
 import { fetchPaymentProcessor } from '../api/payment-processor';
+import { canRequest, recordFailure, recordSuccess } from '../circuit-breaker';
+
+export async function processPaymentWithCB(data: PaymentData, processor: ProcessorName, url: string) {
+    if (!await canRequest(processor)) {
+        return {
+            success: false,
+            error: `Circuit Breaker aberto para ${processor}`
+        };
+    }
+
+    try {
+        const result = await fetchPaymentProcessor(url, data);
+
+        if (!result.success) {
+            await recordFailure(processor);
+            return result;
+        }
+
+        await recordSuccess(processor);
+        return {
+            correlationId: data.correlationId,
+            amount: data.amount,
+            requestedAt: data.requestedAt,
+            processor: processor
+        };
+    } catch (error) {
+        await recordFailure(processor);
+        return {
+            success: false,
+            error: 'Erro ao processar pagamento'
+        };
+    }
+}
 
 
 export async function processPayment(data: PaymentData) {
@@ -14,26 +47,21 @@ export async function processPayment(data: PaymentData) {
         };
     }
 
-    const { name: processor, url } = JSON.parse(processorPayload) as { name: ProcessorName; url: string };
+    const { name: primaryProcessor, url: primaryUrl } = JSON.parse(processorPayload) as { name: ProcessorName; url: string };
 
-    if (!url) {
-        return {
-            success: false,
-            error: 'No available payment processor'
-        };
-    }
-    const result = await fetchPaymentProcessor(url, data);
 
-    if (!result.success) {
-        return result
+    const fallback = primaryProcessor === 'default' ? 'fallback' : 'default';
+    const fallbackUrl = fallback === 'default'
+        ? process.env.PAYMENT_PROCESSOR_DEFAULT_URL as string
+        : process.env.PAYMENT_PROCESSOR_FALLBACK_URL as string;
+
+    const primaryResult = await processPaymentWithCB(data, primaryProcessor, primaryUrl);
+
+    if (primaryResult.success) {
+        return primaryResult;
     }
 
-    return {
-        correlationId: data.correlationId,
-        amount: data.amount,
-        requestedAt: data.requestedAt,
-        processor: processor
-    }
+    return await processPaymentWithCB(data, fallback, fallbackUrl);
 }
 
 export async function savePaymentDataToRedis(data: PaymentData) {

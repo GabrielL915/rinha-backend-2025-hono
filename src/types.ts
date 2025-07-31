@@ -17,17 +17,20 @@ export interface HealthResponse {
 
 export type ProcessorName = 'default' | 'fallback';
 
-export interface ChooseResult {
-    success: boolean;
-    processor?: ProcessorName;
-    error?: string;
+export type ChooseResult = 
+  | { success: true; processor: ProcessorName }  // Quando sucesso, processor obrigatório
+  | { success: false; error?: string };          // Quando falha, processor ausente
+
+export interface CircuitBreakerState {
+  state: "CLOSED" | "OPEN" | "HALF_OPEN";
+  failures: number;
+  nextTry: number;
 }
 
 export interface ProcessorConfig {
-    url: string;
-    name: string;
-    priority: number;
-    retryCount: number;
+  name: ProcessorName;
+  url: string;
+  circuitBreaker?: CircuitBreakerState;
 }
 
 export interface HealthStatus {
