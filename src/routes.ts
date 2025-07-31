@@ -43,11 +43,11 @@ paymentsRoute.get('/payments-summary', async c => {
     return c.json({
         default: {
             totalRequests: summary.default.totalRequests,
-            totalAmount: fmt(summary.default.totalAmount),
+            totalAmount: Number(fmt(summary.default.totalAmount)),
         },
         fallback: {
             totalRequests: summary.fallback.totalRequests,
-            totalAmount: fmt(summary.fallback.totalAmount),
+            totalAmount: Number(fmt(summary.fallback.totalAmount)),
         },
     },
         200,);
