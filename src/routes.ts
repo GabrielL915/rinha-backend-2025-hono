@@ -15,7 +15,8 @@ paymentsRoute.post('/payments', async c => {
 
     const requestedAt = new Date().toISOString()
     const data: PaymentData = {
-        ...body,
+        correlationId: body.correlationId,
+        amount: Math.round(body.amount * 100),
         requestedAt,
     }
 
@@ -36,14 +37,17 @@ paymentsRoute.get('/payments-summary', async c => {
 
     const summary = await paymentSummary(fromParam as string, toParam as string);
 
+    const fmt = (cents: number) =>
+    Number((cents / 100).toFixed(1));
+
     return c.json({
         default: {
             totalRequests: summary.default.totalRequests,
-            totalAmount: summary.default.totalAmount,
+            totalAmount: fmt(summary.default.totalAmount),
         },
         fallback: {
             totalRequests: summary.fallback.totalRequests,
-            totalAmount: summary.fallback.totalAmount,
+            totalAmount: fmt(summary.fallback.totalAmount),
         },
     },
         200,);
