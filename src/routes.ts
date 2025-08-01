@@ -24,7 +24,7 @@ paymentsRoute.post('/payments', async c => {
         attempts: 3,
         backoff: {
             type: 'fixed',
-            delay: 1000,
+            delay: Number(process.env.DELAY)
         },
     })
     return c.json({ status: 'queued' }, 202);
