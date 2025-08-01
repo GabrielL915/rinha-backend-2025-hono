@@ -17,7 +17,7 @@ export const startPaymentWorker = () => {
             host: redisConnectionConfig.hostname,
             port: Number(redisConnectionConfig.port),
         },
-        concurrency: 7,
+        concurrency: 10,
     }
     )
 
