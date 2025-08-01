@@ -23,13 +23,6 @@ export interface ChooseResult {
     error?: string;
 }
 
-export interface ProcessorConfig {
-    url: string;
-    name: string;
-    priority: number;
-    retryCount: number;
-}
-
 export interface HealthStatus {
     status: boolean;
     lastCheck: number;
