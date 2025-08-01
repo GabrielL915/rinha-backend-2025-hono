@@ -19,8 +19,7 @@ export async function paymentProcessorHealthCheck() {
             const selectedUrl = choice.processor === 'default' ? defaultProcessorUrl : fallbackProcessorUrl;
             const payload = JSON.stringify({
                 name: choice.processor,
-                url: selectedUrl,
-                timestamp: Date.now()
+                url: selectedUrl
             });
             await redis.set("processor", payload);
         } else {

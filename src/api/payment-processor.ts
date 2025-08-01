@@ -4,8 +4,7 @@ export async function fetchPaymentProcessor(url: string, data: PaymentData) {
     const paymentsEndpoint = await fetch(`${url}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-        keepalive: true
+        body: JSON.stringify(data)
     })
 
     if (!paymentsEndpoint.ok) {
@@ -22,8 +21,7 @@ export async function fetchPaymentProcessor(url: string, data: PaymentData) {
 
 export async function fetchPaymentProcessorHealth(url: string): Promise<HealthResponse> {
     const healthEndpoint = await fetch(`${url}/payments/service-health`, {
-        headers: { 'Content-Type': 'application/json' },
-        keepalive: true
+        headers: { 'Content-Type': 'application/json' }
     })
 
     if (!healthEndpoint.ok) {

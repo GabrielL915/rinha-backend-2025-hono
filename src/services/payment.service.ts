@@ -41,53 +41,15 @@ export async function savePaymentDataToRedis(data: PaymentData) {
     await redis.lpush('payment', JSON.stringify(data));
 }
 
-async function getPaymentDataFromRedis(pattern: string = 'payment:*') {
+async function getPaymentDataFromRedis() {
     const redis = getRedis();
-    const results: PaymentData[] = [];
-    
-    try {
-        let cursor = '0';
-        
-        do {
-            const [nextCursor, keys] = await redis.scan(
-                cursor, 
-                'MATCH', pattern, 
-                'COUNT', 1000 
-            );
-            
-            cursor = nextCursor;
-            
-            if (keys.length > 0) {
-                const pipeline = redis.pipeline();
-                keys.forEach(key => pipeline.hgetall(key));
-                
-                const responses = await pipeline.exec();
-                
-                if (responses) {
-                    for (const [err, data] of responses) {
-                        if (err || !data) continue;
-                        
-                        const paymentData = data as Record<string, string>;
-                        
-                        if (paymentData.correlationId && paymentData.amount) {
-                            results.push({
-                                correlationId: paymentData.correlationId,
-                                amount: parseInt(paymentData.amount, 10),
-                                requestedAt: paymentData.requestedAt as string,
-                                processor: paymentData.processor
-                            });
-                        }
-                    }
-                }
-            }
-            
-        } while (cursor !== '0');
-        
-        return results;
-    } catch (error) {
-        console.error('Erro no scan Redis:', error);
-        return [];
-    }
+    const raw = await redis.lrange('payment', 0, -1);
+    return raw
+        .map(item => {
+            try { return JSON.parse(item) as PaymentData; }
+            catch { return null; }
+        })
+        .filter((p): p is PaymentData => !!p);
 }
 
 export async function paymentSummary(from?: string, to?: string) {

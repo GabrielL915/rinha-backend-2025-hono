@@ -15,17 +15,16 @@ paymentsRoute.post('/payments', async c => {
 
     const requestedAt = new Date().toISOString()
     const data: PaymentData = {
-        correlationId: body.correlationId,
-        amount: Math.round(body.amount * 100),
+        ...body,
         requestedAt,
     }
 
     await paymentQueue.add('process-payment', data, {
         jobId: body.correlationId,
-        attempts: 1,
+        attempts: 3,
         backoff: {
-            type: 'exponential',
-            delay: 500,
+            type: 'fixed',
+            delay: 1000,
         },
     })
     return c.json({ status: 'queued' }, 202);
@@ -37,17 +36,14 @@ paymentsRoute.get('/payments-summary', async c => {
 
     const summary = await paymentSummary(fromParam as string, toParam as string);
 
-    const fmt = (cents: number) =>
-    Number((cents / 100).toFixed(1));
-
     return c.json({
         default: {
             totalRequests: summary.default.totalRequests,
-            totalAmount: fmt(summary.default.totalAmount),
+            totalAmount: summary.default.totalAmount,
         },
         fallback: {
             totalRequests: summary.fallback.totalRequests,
-            totalAmount: fmt(summary.fallback.totalAmount),
+            totalAmount: summary.fallback.totalAmount,
         },
     },
         200,);
