@@ -22,7 +22,6 @@ export interface ChooseResult {
     processor?: ProcessorName;
     error?: string;
 }
-
 export interface HealthStatus {
     status: boolean;
     lastCheck: number;
