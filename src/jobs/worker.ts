@@ -11,20 +11,9 @@ const healthQueueName = 'health_queue';
 
 export const startPaymentWorker = () => {
     const worker = new Worker(paymentqueueName, async (job) => {
-        try {
             const data = job.data;
             const result = await processPayment(data as PaymentData);
             await savePaymentDataToRedis(result);
-        } catch (error) {
-            if (typeof error === "object" && error !== null && "message" in error && (error as any).message === 'No available payment processor') {
-                await paymentQueue.add(job.name, job.data, {
-                    jobId: job.id,
-                    delay: 3000
-                });
-                return { requeued: true };
-            }
-            throw error;
-        }
     }, {
         connection: {
             host: redisConnectionConfig.hostname,
