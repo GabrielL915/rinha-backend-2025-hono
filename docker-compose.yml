@@ -34,7 +34,7 @@ services:
       resources:
         limits:
           cpus: "0.55"
-          memory: "65MB"
+          memory: "70MB"
   api02:
     image: ghcr.io/gabriell915/api-rinha-backend-hono-2025:latest
     environment:
@@ -55,7 +55,7 @@ services:
   redis:
     image: redis:7.2-alpine
     container_name: rinha-redis
-    command: redis-server --save "" --appendonly no --maxclients 5000 --maxmemory 100mb --maxmemory-policy allkeys-lru --timeout 30 --tcp-keepalive 60
+    command: redis-server --save "" --appendonly no --maxclients 10000 --maxmemory 100mb --maxmemory-policy allkeys-lru --timeout 30 --tcp-keepalive 60
     ports:
       - "6379:6379"
     networks:

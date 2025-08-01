@@ -45,7 +45,7 @@ export async function savePaymentDataToRedis(data: PaymentData) {
     const pipeline = redis.pipeline();
     pipeline.hset(hashKey, {
         correlationId: data.correlationId,
-        amount: data.amount.toString(),
+        amount: data.amount,
         processor: data.processor,
         requestedAt: data.requestedAt
     });
@@ -128,7 +128,6 @@ export async function paymentSummary(from?: string, to?: string) {
         if (!data.processor) continue;
         
         const amount = Number(data.amount);
-        if (isNaN(amount)) continue;
 
         const proc = data.processor as ProcessorName;
         
