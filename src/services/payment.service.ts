@@ -2,6 +2,7 @@ import { getRedis } from '../config/redis';
 import { PaymentData, ProcessorName, SummaryValue } from '../types';
 import { fetchPaymentProcessor } from '../api/payment-processor';
 
+const ZSET_KEY = 'payments_by_time';
 
 export async function processPayment(data: PaymentData) {
     const redis = getRedis();
@@ -38,13 +39,22 @@ export async function processPayment(data: PaymentData) {
 
 export async function savePaymentDataToRedis(data: PaymentData) {
     const redis = getRedis();
-    const pipeline = redis.pipeline();
+    const ts = Date.parse(data.requestedAt);
+    const hashKey = `payment:${data.correlationId}`;
 
-    pipeline.lpush('payment', JSON.stringify(data));
+    const pipeline = redis.pipeline();
+    pipeline.hset(hashKey, {
+        correlationId: data.correlationId,
+        amount: data.amount.toString(),
+        processor: data.processor,
+        requestedAt: data.requestedAt
+    });
+    pipeline.zadd(ZSET_KEY, ts, data.correlationId);
+    pipeline.publish('payment:done', data.correlationId);
     await pipeline.exec();
 }
 
-async function getPaymentDataFromRedis() {
+/* async function getPaymentDataFromRedis() {
     const redis = getRedis();
     const raw = await redis.lrange('payment', 0, -1);
     return raw
@@ -53,10 +63,10 @@ async function getPaymentDataFromRedis() {
             catch { return null; }
         })
         .filter((p): p is PaymentData => !!p);
-}
+} */
 
 export async function paymentSummary(from?: string, to?: string) {
-    const payments = await getPaymentDataFromRedis();
+    /* const payments = await getPaymentDataFromRedis();
 
     const fromTs = from ? Date.parse(from) : -Infinity;
     const toTs = to ? Date.parse(to) : Infinity;
@@ -77,5 +87,58 @@ export async function paymentSummary(from?: string, to?: string) {
     }
 
     return summary;
+ */
+    const redis = getRedis();
+    const fromTs = from ? Date.parse(from) : -Infinity;
+    const toTs = to ? Date.parse(to) : Infinity;
 
+    const maxTs = Number.isFinite(toTs) ? toTs - 1 : toTs;
+    const ids = await redis.zrangebyscore(ZSET_KEY, fromTs, maxTs);
+
+    if (ids.length === 0) {
+        return {
+            default: { totalRequests: 0, totalAmount: 0 },
+            fallback: { totalRequests: 0, totalAmount: 0 }
+        };
+    }
+
+    const p = redis.pipeline();
+    ids.forEach(id => p.hgetall(`payment:${id}`));
+    const execRes = await p.exec();
+
+    if (!execRes) {
+        return {
+            default: { totalRequests: 0, totalAmount: 0 },
+            fallback: { totalRequests: 0, totalAmount: 0 }
+        };
+    }
+
+    const raws: Record<string, string>[] = [];
+    for (const [err, data] of execRes) {
+        if (err || !data) continue;
+        raws.push(data as Record<string, string>);
+    }
+
+    const summary: Record<ProcessorName, SummaryValue> = {
+        default: { totalRequests: 0, totalAmount: 0 },
+        fallback: { totalRequests: 0, totalAmount: 0 }
+    };
+
+    for (const data of raws) {
+        if (!data.processor) continue;
+        
+        const amount = Number(data.amount);
+        if (isNaN(amount)) continue;
+
+        const proc = data.processor as ProcessorName;
+        
+        if (!summary[proc]) {
+            summary[proc] = { totalRequests: 0, totalAmount: 0 };
+        }
+
+        summary[proc].totalRequests++;
+        summary[proc].totalAmount += amount;
+    }
+
+    return summary;
 }
