@@ -35,7 +35,7 @@ export async function paymentProcessorHealthCheck() {
 
 
 export function choosePaymentProcessor(defaultProcessor: HealthResponse, fallbackProcessor: HealthResponse): ChooseResult {
-    const defaultResponseTime = 1
+    const defaultResponseTime = 1.8
     const defaultHealthy = !defaultProcessor.failing;
     const fallbackHealthy = !fallbackProcessor.failing;
 
