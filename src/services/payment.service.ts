@@ -38,7 +38,10 @@ export async function processPayment(data: PaymentData) {
 
 export async function savePaymentDataToRedis(data: PaymentData) {
     const redis = getRedis();
-    await redis.lpush('payment', JSON.stringify(data));
+    const pipeline = redis.pipeline();
+
+    pipeline.lpush('payment', JSON.stringify(data));
+    await pipeline.exec();
 }
 
 async function getPaymentDataFromRedis() {
