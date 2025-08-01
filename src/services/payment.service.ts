@@ -8,24 +8,18 @@ export async function processPayment(data: PaymentData) {
 
     const processorPayload = await redis.get('processor');
     if (!processorPayload) {
-        return {
-            success: false,
-            error: 'No available payment processor'
-        };
+        throw new Error('No available payment processor');
     }
 
     const { name: processor, url } = JSON.parse(processorPayload) as { name: ProcessorName; url: string };
 
     if (!url) {
-        return {
-            success: false,
-            error: 'No available payment processor'
-        };
+        throw new Error('No available payment processor');
     }
     const result = await fetchPaymentProcessor(url, data);
 
     if (!result.success) {
-        return result
+        throw new Error(result.error || 'Payment processor error');
     }
 
     return {

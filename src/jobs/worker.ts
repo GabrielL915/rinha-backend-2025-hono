@@ -13,7 +13,8 @@ export const startPaymentWorker = () => {
     const worker = new Worker(paymentqueueName, async (job) => {
         try {
             const data = job.data;
-            return await processPayment(data);
+            const result = await processPayment(data as PaymentData);
+            await savePaymentDataToRedis(result);
         } catch (error) {
             if (typeof error === "object" && error !== null && "message" in error && (error as any).message === 'No available payment processor') {
                 await paymentQueue.add(job.name, job.data, {
@@ -22,7 +23,6 @@ export const startPaymentWorker = () => {
                 });
                 return { requeued: true };
             }
-            // para outros erros, lança pra BullMQ aplicar retry/backoff
             throw error;
         }
     }, {
@@ -34,11 +34,10 @@ export const startPaymentWorker = () => {
     }
     )
 
-    worker.on('completed', async (job) => {
+/*     worker.on('completed', async (job) => {
         const result = job.returnvalue as PaymentData
-        console.log("[Worker completed]", result)
         await savePaymentDataToRedis(result);
-    });
+    }); */
 
     worker.on('failed', () => {
         const redis = getRedis();
