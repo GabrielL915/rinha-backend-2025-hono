@@ -25,7 +25,9 @@ export const startPaymentWorker = () => {
 
     worker.on('completed', async (job) => {
         const result = job.returnvalue as PaymentData
-        await savePaymentDataToRedis(result);
+        if (result) {
+            await savePaymentDataToRedis(result as PaymentData);
+        }
     });
 }
 

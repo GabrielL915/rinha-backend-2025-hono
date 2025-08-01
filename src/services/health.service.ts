@@ -1,7 +1,7 @@
 import { HealthResponse, ChooseResult, ProcessorName } from "../types";
 import { fetchPaymentProcessorHealth } from "../api/payment-processor";
 import { getRedis } from "../config/redis";
-import { recordSuccess } from "../circuit-breaker";
+import { recordFailure, recordSuccess } from "../circuit-breaker";
 
 export async function paymentProcessorHealthCheck() {
     const redis = getRedis();
@@ -12,6 +12,18 @@ export async function paymentProcessorHealthCheck() {
         fetchPaymentProcessorHealth(defaultProcessorUrl),
         fetchPaymentProcessorHealth(fallbackProcessorUrl)
     ]);
+
+    if (!defaultRes.failing) {
+        await recordSuccess("default");
+    } else {
+        await recordFailure("default");
+    }
+
+    if (!fallbackRes.failing) {
+        await recordSuccess("fallback");
+    } else {
+        await recordFailure("fallback");
+    }
 
     if (!defaultRes.failing || !fallbackRes.failing) {
         const choice = choosePaymentProcessor(defaultRes, fallbackRes);
@@ -37,7 +49,7 @@ export async function paymentProcessorHealthCheck() {
 
 
 export function choosePaymentProcessor(defaultProcessor: HealthResponse, fallbackProcessor: HealthResponse): ChooseResult {
-    const defaultResponseTime = 2.5
+    const defaultResponseTime = 1.9
     const defaultHealthy = !defaultProcessor.failing;
     const fallbackHealthy = !fallbackProcessor.failing;
 
