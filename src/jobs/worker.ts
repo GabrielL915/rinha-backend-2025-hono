@@ -36,6 +36,7 @@ export const startPaymentWorker = () => {
 
     worker.on('completed', async (job) => {
         const result = job.returnvalue as PaymentData
+        console.log("[Worker completed]", result)
         await savePaymentDataToRedis(result);
     });
 
