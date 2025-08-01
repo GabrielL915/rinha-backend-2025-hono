@@ -2,7 +2,6 @@ import { getRedis } from '../config/redis';
 import { PaymentData, ProcessorName, SummaryValue } from '../types';
 import { fetchPaymentProcessor } from '../api/payment-processor';
 
-const ZSET_KEY = 'payments_by_time';
 
 export async function processPayment(data: PaymentData) {
     const redis = getRedis();
@@ -39,34 +38,60 @@ export async function processPayment(data: PaymentData) {
 
 export async function savePaymentDataToRedis(data: PaymentData) {
     const redis = getRedis();
-    const ts = Date.parse(data.requestedAt);
-    const hashKey = `payment:${data.correlationId}`;
-
-    const pipeline = redis.pipeline();
-    pipeline.hset(hashKey, {
-        correlationId: data.correlationId,
-        amount: data.amount,
-        processor: data.processor,
-        requestedAt: data.requestedAt
-    });
-    pipeline.zadd(ZSET_KEY, ts, data.correlationId);
-    pipeline.publish('payment:done', data.correlationId);
-    await pipeline.exec();
+    await redis.lpush('payment', JSON.stringify(data));
 }
 
-/* async function getPaymentDataFromRedis() {
+async function getPaymentDataFromRedis(pattern: string = 'payment:*') {
     const redis = getRedis();
-    const raw = await redis.lrange('payment', 0, -1);
-    return raw
-        .map(item => {
-            try { return JSON.parse(item) as PaymentData; }
-            catch { return null; }
-        })
-        .filter((p): p is PaymentData => !!p);
-} */
+    const results: PaymentData[] = [];
+    
+    try {
+        let cursor = '0';
+        
+        do {
+            const [nextCursor, keys] = await redis.scan(
+                cursor, 
+                'MATCH', pattern, 
+                'COUNT', 1000 
+            );
+            
+            cursor = nextCursor;
+            
+            if (keys.length > 0) {
+                const pipeline = redis.pipeline();
+                keys.forEach(key => pipeline.hgetall(key));
+                
+                const responses = await pipeline.exec();
+                
+                if (responses) {
+                    for (const [err, data] of responses) {
+                        if (err || !data) continue;
+                        
+                        const paymentData = data as Record<string, string>;
+                        
+                        if (paymentData.correlationId && paymentData.amount) {
+                            results.push({
+                                correlationId: paymentData.correlationId,
+                                amount: parseInt(paymentData.amount, 10),
+                                requestedAt: paymentData.requestedAt as string,
+                                processor: paymentData.processor
+                            });
+                        }
+                    }
+                }
+            }
+            
+        } while (cursor !== '0');
+        
+        return results;
+    } catch (error) {
+        console.error('Erro no scan Redis:', error);
+        return [];
+    }
+}
 
 export async function paymentSummary(from?: string, to?: string) {
-    /* const payments = await getPaymentDataFromRedis();
+    const payments = await getPaymentDataFromRedis();
 
     const fromTs = from ? Date.parse(from) : -Infinity;
     const toTs = to ? Date.parse(to) : Infinity;
@@ -87,57 +112,5 @@ export async function paymentSummary(from?: string, to?: string) {
     }
 
     return summary;
- */
-    const redis = getRedis();
-    const fromTs = from ? Date.parse(from) : -Infinity;
-    const toTs = to ? Date.parse(to) : Infinity;
 
-    const maxTs = Number.isFinite(toTs) ? toTs - 1 : toTs;
-    const ids = await redis.zrangebyscore(ZSET_KEY, fromTs, maxTs);
-
-    if (ids.length === 0) {
-        return {
-            default: { totalRequests: 0, totalAmount: 0 },
-            fallback: { totalRequests: 0, totalAmount: 0 }
-        };
-    }
-
-    const p = redis.pipeline();
-    ids.forEach(id => p.hgetall(`payment:${id}`));
-    const execRes = await p.exec();
-
-    if (!execRes) {
-        return {
-            default: { totalRequests: 0, totalAmount: 0 },
-            fallback: { totalRequests: 0, totalAmount: 0 }
-        };
-    }
-
-    const raws: Record<string, string>[] = [];
-    for (const [err, data] of execRes) {
-        if (err || !data) continue;
-        raws.push(data as Record<string, string>);
-    }
-
-    const summary: Record<ProcessorName, SummaryValue> = {
-        default: { totalRequests: 0, totalAmount: 0 },
-        fallback: { totalRequests: 0, totalAmount: 0 }
-    };
-
-    for (const data of raws) {
-        if (!data.processor) continue;
-        
-        const amount = Number(data.amount);
-
-        const proc = data.processor as ProcessorName;
-        
-        if (!summary[proc]) {
-            summary[proc] = { totalRequests: 0, totalAmount: 0 };
-        }
-
-        summary[proc].totalRequests++;
-        summary[proc].totalAmount += amount;
-    }
-
-    return summary;
 }

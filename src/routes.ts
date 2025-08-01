@@ -22,10 +22,10 @@ paymentsRoute.post('/payments', async c => {
 
     await paymentQueue.add('process-payment', data, {
         jobId: body.correlationId,
-        attempts: 3,
+        attempts: 1,
         backoff: {
-            type: 'fixed',
-            delay: 1000,
+            type: 'exponential',
+            delay: 500,
         },
     })
     return c.json({ status: 'queued' }, 202);

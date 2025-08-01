@@ -10,39 +10,23 @@ const healthQueueName = 'health_queue';
 
 export const startPaymentWorker = () => {
     const worker = new Worker(paymentqueueName, async (job: Job) => {
-        const redis = getRedis();
         const data = job.data as PaymentData;
-
-        const processor = await redis.get("processor");
-        if (!processor) {
-            await job.moveToDelayed(Date.now() + 1000);
-            throw new Error("Nenhum processador disponível no momento");
-        }
-
-        const result = await processPayment(data);
+        const result = await processPayment(data);  
         return result;
-
     }, {
         connection: {
             host: redisConnectionConfig.hostname,
             port: Number(redisConnectionConfig.port),
         },
         concurrency: 10,
+        removeOnComplete: {count: 1000},
+        removeOnFail: {count: 500},
        
     });
 
     worker.on('completed', async (job) => {
         const result = job.returnvalue as PaymentData;
-        if (result) {
             await savePaymentDataToRedis(result);
-        }
-    });
-
-    worker.on('failed', async (job, err) => {
-        if (!job) return
-        if (job.attemptsMade < (job.opts.attempts ?? 3)) {
-            await job.moveToDelayed(Date.now() + 500);
-        }
     });
 };
 
