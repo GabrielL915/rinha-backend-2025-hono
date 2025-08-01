@@ -33,7 +33,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.9"
+          cpus: "0.6"
           memory: "65MB"
   api02:
     image: ghcr.io/gabriell915/api-rinha-backend-hono-2025:latest
@@ -50,7 +50,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.9"
+          cpus: "0.55"
           memory: "65MB"
   redis:
     image: redis:7.2-alpine
