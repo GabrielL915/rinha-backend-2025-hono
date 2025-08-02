@@ -3,7 +3,6 @@ import { redisConnectionConfig } from "../config/redis";
 import { processPayment, savePaymentDataToRedis } from "../services/payment.service";
 import { paymentProcessorHealthCheck } from "../services/health.service";
 import { PaymentData } from "../types";
-import { paymentQueue } from "./queue";
 import { getRedis } from "../config/redis";
 
 const paymentqueueName = 'payment_queue';
@@ -13,7 +12,7 @@ export const startPaymentWorker = () => {
     const worker = new Worker(paymentqueueName, async (job) => {
         const data = job.data;
         const result = await processPayment(data as PaymentData);
-        //await savePaymentDataToRedis(result);
+        await savePaymentDataToRedis(result);
         return result;
     }, {
         connection: {
@@ -24,14 +23,11 @@ export const startPaymentWorker = () => {
     }
     )
 
-    worker.on('completed', async (job) => {
+/*     worker.on('completed', async (job) => {
         const result = job.returnvalue as PaymentData
-        if(!result) {
-            return
-        }
         await savePaymentDataToRedis(result);
     });
-
+ */
     worker.on('failed', () => {
         const redis = getRedis();
         redis.set("processor", "fallback")
