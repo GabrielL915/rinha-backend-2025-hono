@@ -11,9 +11,10 @@ const healthQueueName = 'health_queue';
 
 export const startPaymentWorker = () => {
     const worker = new Worker(paymentqueueName, async (job) => {
-            const data = job.data;
-            const result = await processPayment(data as PaymentData);
-            await savePaymentDataToRedis(result);
+        const data = job.data;
+        const result = await processPayment(data as PaymentData);
+        //await savePaymentDataToRedis(result);
+        return result;
     }, {
         connection: {
             host: redisConnectionConfig.hostname,
@@ -23,10 +24,13 @@ export const startPaymentWorker = () => {
     }
     )
 
-/*     worker.on('completed', async (job) => {
+    worker.on('completed', async (job) => {
         const result = job.returnvalue as PaymentData
+        if(!result) {
+            return
+        }
         await savePaymentDataToRedis(result);
-    }); */
+    });
 
     worker.on('failed', () => {
         const redis = getRedis();

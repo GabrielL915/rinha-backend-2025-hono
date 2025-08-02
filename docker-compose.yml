@@ -25,7 +25,7 @@ services:
       PAYMENT_PROCESSOR_DEFAULT_URL: "http://payment-processor-default:8080"
       PAYMENT_PROCESSOR_FALLBACK_URL: "http://payment-processor-fallback:8080"
       BULLMQ_CONCURRENCY: "27"
-      DELAY: "500"
+      DELAY: "100"
     networks:
       - backend
       - payment-processor
@@ -44,7 +44,7 @@ services:
       PAYMENT_PROCESSOR_DEFAULT_URL: "http://payment-processor-default:8080"
       PAYMENT_PROCESSOR_FALLBACK_URL: "http://payment-processor-fallback:8080"
       BULLMQ_CONCURRENCY: "40"
-      DELAY: "500"
+      DELAY: "100"
     networks:
       - backend
       - payment-processor
