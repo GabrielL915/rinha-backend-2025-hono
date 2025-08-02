@@ -8,18 +8,24 @@ export async function processPayment(data: PaymentData) {
 
     const processorPayload = await redis.get('processor');
     if (!processorPayload) {
-        throw new Error('No available payment processor');
+        return {
+            success: false,
+            error: 'No available payment processor'
+        };
     }
 
     const { name: processor, url } = JSON.parse(processorPayload) as { name: ProcessorName; url: string };
 
     if (!url) {
-        throw new Error('No available payment processor');
+        return {
+            success: false,
+            error: 'No available payment processor'
+        };
     }
     const result = await fetchPaymentProcessor(url, data);
 
     if (!result.success) {
-        throw new Error(result.error || 'Payment processor error');
+        return result
     }
 
     return {
@@ -31,18 +37,8 @@ export async function processPayment(data: PaymentData) {
 }
 
 export async function savePaymentDataToRedis(data: PaymentData) {
-    /* const redis = getRedis();
-    await redis.lpush('payment', JSON.stringify(data)); */
     const redis = getRedis();
-    const keySet = `payments:${data.processor}`;
-    const keyHash = `payments:data`;
-    const ts = Date.parse(data.requestedAt);
-
-    await redis
-        .multi()
-        .zadd(keySet, ts, data.correlationId)
-        .hset(keyHash, data.correlationId, data.amount.toString())
-        .exec();
+    await redis.lpush('payment', JSON.stringify(data));
 }
 
 async function getPaymentDataFromRedis() {
@@ -56,7 +52,7 @@ async function getPaymentDataFromRedis() {
         .filter((p): p is PaymentData => !!p);
 }
 
-/* export async function paymentSummary(from?: string, to?: string) {
+export async function paymentSummary(from?: string, to?: string) {
     const payments = await getPaymentDataFromRedis();
 
     const fromTs = from ? Date.parse(from) : -Infinity;
@@ -79,33 +75,4 @@ async function getPaymentDataFromRedis() {
 
     return summary;
 
-} */
-export async function paymentSummary(from?: string, to?: string) {
-  const redis = getRedis();
-  const fromTs = from ? Date.parse(from) : -Infinity;
-  const toTs   = to   ? Date.parse(to)   : Infinity;
-
-  const summary: Record<ProcessorName, SummaryValue> = {
-    default:  { totalRequests: 0, totalAmount: 0 },
-    fallback: { totalRequests: 0, totalAmount: 0 },
-  };
-
-  for (const processor of ['default','fallback'] as ProcessorName[]) {
-    const setKey = `payments:${processor}`;
-    const hashKey = `payments:data`;
-
-    const ids: string[] = await redis.zrangebyscore(setKey, fromTs, toTs);
-
-    if (ids.length === 0) continue;
-    summary[processor].totalRequests = ids.length;
-
-    // 2) obtém todos os amounts de uma vez
-    const amounts = await redis.hmget(hashKey, ...ids);
-    // hmget retorna array de string|null
-    summary[processor].totalAmount = amounts
-      .filter((a): a is string => !!a)
-      .reduce((acc, str) => acc + parseFloat(str), 0);
-  }
-
-  return summary;
 }

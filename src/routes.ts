@@ -23,7 +23,7 @@ paymentsRoute.post('/payments', async c => {
         jobId: body.correlationId,
         attempts: 3,
         backoff: {
-            type: 'fixed',
+            type: 'exponential',
             delay: Number(process.env.DELAY)
         },
     })

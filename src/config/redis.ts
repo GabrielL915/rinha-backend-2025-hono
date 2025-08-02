@@ -22,9 +22,6 @@ function createRedisConnection(): Redis {
 function setupRedisEventListeners(redis: Redis) {
     redis.on('connect', () => {
         console.log('[Redis] connected successfully')
-        /* healthCheckQueue.upsertJobScheduler(healthCheckQueue.name, {
-            every: 5000
-        }) */
     })
     redis.on('error', (err) => console.error('[Redis] connection or command error:', err))
     redis.on('close', () => console.warn('[Redis] connection closed'))
